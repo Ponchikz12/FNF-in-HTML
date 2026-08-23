@@ -141,6 +141,9 @@
   .btn-p1{background:var(--p1-dim);border-color:var(--p1);color:var(--p1);}
   .btn-danger{background:transparent;border-color:var(--danger);color:var(--danger);}
   .hint-text{font-size:11.5px;color:var(--dim);line-height:1.5;}
+  .mp-status-warn{color:var(--accent);font-weight:600;}
+  .mp-status-ok{color:var(--p1);font-weight:600;}
+  .mp-status-err{color:var(--danger);font-weight:600;}
   .checkline{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--text);}
   .checkline input{accent-color:var(--p1);}
   .tag{display:inline-block;font-family:var(--mono);font-size:10.5px;padding:2px 7px;border-radius:4px;background:var(--panel2);color:var(--dim);border:1px solid var(--line2);}
@@ -1013,6 +1016,7 @@ const DEFAULT_MP_SERVER_URL = 'wss://fnf-mp-server.onrender.com';
 
 let mpAutoRetryCount = 0;
 let mpAutoRetryTimer = null;
+let mpAutoRetryStartTs = null;
 function mpSend(obj){
   if(state.mp.ws && state.mp.ws.readyState===1) state.mp.ws.send(JSON.stringify(obj));
 }
@@ -1023,7 +1027,7 @@ $('mpBackBtn').addEventListener('click', ()=>{
 $('mpConnectBtn').addEventListener('click', ()=>{
   const url = $('mpServerUrl').value.trim();
   if(!url){ $('mpConnectStatus').textContent = 'Укажи адрес сервера.'; return; }
-  mpAutoRetryCount = 0; // a manual click resets the auto-retry budget
+  mpAutoRetryCount = 0; mpAutoRetryStartTs = null; // a manual click resets the auto-retry budget
   connectMultiplayer(url);
 });
 function connectMultiplayer(url, isAutoRetry){
@@ -1031,13 +1035,17 @@ function connectMultiplayer(url, isAutoRetry){
   try{ ws = new WebSocket(url); }
   catch(err){ $('mpConnectStatus').textContent = '⚠ Некорректный адрес: '+err.message; return; }
   state.mp.serverUrl = url;
-  if(!isAutoRetry) $('mpConnectStatus').textContent = 'Подключение…';
+  if(!isAutoRetry){
+    $('mpConnectStatus').textContent = 'Подключение…';
+    $('mpConnectStatus').className = 'hint-text';
+  }
   ws.addEventListener('open', ()=>{
-    mpAutoRetryCount = 0;
+    mpAutoRetryCount = 0; mpAutoRetryStartTs = null;
     if(mpAutoRetryTimer){ clearTimeout(mpAutoRetryTimer); mpAutoRetryTimer = null; }
     state.mp.connected = true;
     state.mp.ws = ws;
     $('mpConnectStatus').textContent = '✓ Подключено к '+url+' ('+deviceIcon(state.mp.myDevice)+' '+state.mp.myDevice+')';
+    $('mpConnectStatus').className = 'hint-text mp-status-ok';
     ['mpSetupCard','mpAudioCard','mpSongCard','mpCharCard','mpActionsCard'].forEach(id=> $(id).style.display='');
     refreshMpCharSelects(); refreshMpSongSelect();
     if(state.mp.pingIntervalId) clearInterval(state.mp.pingIntervalId);
@@ -1054,13 +1062,19 @@ function connectMultiplayer(url, isAutoRetry){
     ['mpSetupCard','mpAudioCard','mpSongCard','mpCharCard','mpActionsCard'].forEach(id=> $(id).style.display='none');
     if(state.mp.pingIntervalId){ clearInterval(state.mp.pingIntervalId); state.mp.pingIntervalId = null; }
     // free-tier hosts (Render etc.) sleep after inactivity and need ~30-60s to wake up on the
-    // first connection — auto-retry a few times instead of just failing once
+    // first connection — auto-retry a few times instead of just failing once, and show a
+    // real elapsed-time counter so it's obvious this is an expected wait, not a hang
     if(mpAutoRetryCount < 15){
+      if(mpAutoRetryCount===0) mpAutoRetryStartTs = Date.now();
       mpAutoRetryCount++;
-      $('mpConnectStatus').textContent = 'Сервер просыпается (бесплатный хостинг засыпает без активности)… попытка '+mpAutoRetryCount+'/15';
+      const elapsedSec = Math.round((Date.now()-mpAutoRetryStartTs)/1000);
+      $('mpConnectStatus').textContent =
+        `⏳ Сервер просыпается (бесплатный хостинг Render засыпает без активности, обычно 30-60 сек) — прошло ${elapsedSec} сек, попытка ${mpAutoRetryCount}/15`;
+      $('mpConnectStatus').className = 'hint-text mp-status-warn';
       mpAutoRetryTimer = setTimeout(()=> connectMultiplayer(url, true), 5000);
     } else {
-      $('mpConnectStatus').textContent = 'Не удалось достучаться до сервера. Проверь, что он задеплоен и жив.';
+      $('mpConnectStatus').textContent = '⚠ Не удалось достучаться до сервера за ~75 сек. Проверь, что он задеплоен и жив, и что адрес начинается с wss://';
+      $('mpConnectStatus').className = 'hint-text mp-status-err';
     }
   });
   ws.addEventListener('error', ()=>{});
