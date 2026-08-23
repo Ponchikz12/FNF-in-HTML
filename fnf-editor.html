@@ -1,0 +1,2883 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>Chart Editor</title>
+<style>
+  :root{
+    --bg:#0d0e13;
+    --bg2:#101219;
+    --panel:#161822;
+    --panel2:#1c1f2b;
+    --line:#272b3a;
+    --line2:#333850;
+    --text:#e8eaf4;
+    --dim:#8a8fa8;
+    --p1:#43e6c4;
+    --p1-dim:#1c4a42;
+    --p2:#ff5f96;
+    --p2-dim:#4a1c31;
+    --accent:#ffcf5c;
+    --danger:#ff5f5f;
+    --mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+    --sans: -apple-system, "Segoe UI", system-ui, sans-serif;
+  }
+  *{box-sizing:border-box;min-width:0;}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font-family:var(--sans);overflow:hidden;}
+  button{font-family:inherit;cursor:pointer;}
+  input,select{font-family:var(--mono);}
+
+  /* ---------- fullscreen views: start menu / freeplay / options / play ---------- */
+  .fullscreen-view{
+    position:fixed;inset:0;background:var(--bg);display:none;flex-direction:column;z-index:35;
+  }
+  .fullscreen-view.open{display:flex;}
+  #startMenu{
+    background:
+      radial-gradient(circle at 20% 20%, #1a2033 0%, transparent 45%),
+      radial-gradient(circle at 80% 70%, #2a1830 0%, transparent 50%),
+      var(--bg);
+    align-items:center;justify-content:center;gap:16px;padding:20px;text-align:center;
+  }
+  #startMenu h1{
+    font-size:clamp(28px,7vw,44px);letter-spacing:2px;margin:0;
+    background:linear-gradient(90deg,var(--p1),var(--p2));
+    -webkit-background-clip:text;background-clip:text;color:transparent;
+    font-weight:800;
+  }
+  #startMenu p{color:var(--dim);font-family:var(--mono);font-size:13px;margin:0;}
+  #startMenu .hint{
+    border:1px solid var(--line2);padding:10px 16px;border-radius:8px;
+    background:var(--panel);font-family:var(--mono);font-size:13px;color:var(--text);
+  }
+  #startMenu .hint kbd{
+    background:var(--panel2);border:1px solid var(--line2);border-bottom-width:2px;
+    padding:2px 8px;border-radius:5px;font-family:var(--mono);color:var(--accent);
+  }
+  .stub-actions{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;}
+
+  /* ---------- editor shell ---------- */
+  #editor{
+    position:fixed;inset:0;background:var(--bg2);display:none;flex-direction:column;
+    animation:fadeIn .12s ease-out;z-index:45;
+  }
+  #editor.open{display:flex;}
+  @keyframes fadeIn{from{opacity:0}to{opacity:1}}
+
+  .topbar{
+    display:flex;align-items:stretch;gap:6px;padding:8px 8px;
+    background:var(--panel);border-bottom:1px solid var(--line);flex-shrink:0;
+    position:sticky;top:0;z-index:20;
+  }
+  .topbar .logo{font-weight:800;font-size:12px;letter-spacing:1px;color:var(--dim);
+    margin-right:6px;font-family:var(--mono);display:flex;align-items:center;flex-shrink:0;white-space:nowrap;}
+  .tabs-scroll{display:flex;gap:4px;overflow-x:auto;flex:1;min-width:0;scrollbar-width:none;}
+  .tabs-scroll::-webkit-scrollbar{display:none;}
+  .tab-btn{
+    background:transparent;border:1px solid transparent;color:var(--dim);
+    padding:8px 14px;border-radius:7px;font-size:13px;font-weight:600;letter-spacing:.3px;
+    flex-shrink:0;white-space:nowrap;
+  }
+  .tab-btn:hover{color:var(--text);background:var(--panel2);}
+  .tab-btn.active{color:var(--bg);background:var(--text);}
+  .topbar-actions{display:flex;gap:6px;flex-shrink:0;align-items:center;}
+  .icon-btn{
+    background:var(--panel2);border:1px solid var(--line2);color:var(--dim);
+    width:34px;height:34px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:15px;
+    flex-shrink:0;
+  }
+  .icon-btn:hover{color:var(--text);border-color:var(--dim);}
+
+  .fab-close{
+    position:fixed;right:16px;bottom:16px;z-index:60;
+    width:48px;height:48px;border-radius:50%;
+    background:var(--danger);color:#fff;border:none;font-size:19px;font-weight:700;
+    box-shadow:0 4px 16px rgba(0,0,0,.4);display:none;align-items:center;justify-content:center;
+  }
+  .fab-close.show{display:flex;}
+
+  .panels{flex:1;overflow:hidden;position:relative;}
+  .panel{position:absolute;inset:0;display:none;overflow:auto;overflow-x:hidden;}
+  .panel.active{display:flex;}
+
+  /* ---------- shared form styles ---------- */
+  .col{display:flex;flex-direction:column;gap:14px;padding:16px;overflow:auto;overflow-x:hidden;}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px;min-width:0;}
+  .card h3{margin:0 0 12px;font-size:11px;text-transform:uppercase;letter-spacing:1.2px;color:var(--dim);font-weight:700;}
+  .field{display:flex;flex-direction:column;gap:5px;margin-bottom:12px;min-width:0;}
+  .field:last-child{margin-bottom:0;}
+  .field label{font-size:11.5px;color:var(--dim);font-weight:600;}
+  .field input[type=text],.field input[type=number],.field select{
+    background:var(--panel2);border:1px solid var(--line2);color:var(--text);
+    padding:8px 10px;border-radius:6px;font-size:13px;outline:none;width:100%;
+  }
+  .field input:focus,.field select:focus{border-color:var(--accent);}
+  .row{display:flex;gap:12px;flex-wrap:wrap;}
+  .row > *{flex:1;min-width:120px;}
+  .filepick{
+    display:flex;align-items:center;gap:10px;background:var(--panel2);
+    border:1px dashed var(--line2);border-radius:6px;padding:10px 12px;font-size:12.5px;color:var(--dim);min-width:0;
+  }
+  .filepick.filled{border-style:solid;border-color:var(--p1-dim);color:var(--text);}
+  .filepick .name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .filepick button{background:var(--panel);border:1px solid var(--line2);color:var(--dim);border-radius:5px;padding:5px 10px;font-size:11px;flex-shrink:0;}
+  .filepick button:hover{color:var(--text);}
+  .kb-row{
+    display:flex;align-items:center;gap:10px;background:var(--panel2);
+    border:1px solid var(--line2);border-radius:6px;padding:9px 12px;font-size:13px;min-width:0;
+  }
+  .kb-row .kb-name{flex:1;min-width:0;}
+  .kb-row.listening{border-color:var(--accent);}
+  .kb-row button{background:var(--panel);border:1px solid var(--line2);color:var(--dim);border-radius:5px;padding:6px 12px;font-size:11.5px;flex-shrink:0;}
+  .kb-row button:hover{color:var(--text);}
+  .btn{
+    background:var(--panel2);border:1px solid var(--line2);color:var(--text);
+    padding:9px 16px;border-radius:7px;font-size:12.5px;font-weight:600;
+  }
+  .btn:hover{border-color:var(--dim);}
+  .btn-primary{background:var(--text);color:var(--bg);border-color:var(--text);}
+  .btn-primary:hover{opacity:.88;border-color:var(--text);}
+  .btn-p1{background:var(--p1-dim);border-color:var(--p1);color:var(--p1);}
+  .btn-danger{background:transparent;border-color:var(--danger);color:var(--danger);}
+  .hint-text{font-size:11.5px;color:var(--dim);line-height:1.5;}
+  .checkline{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--text);}
+  .checkline input{accent-color:var(--p1);}
+  .tag{display:inline-block;font-family:var(--mono);font-size:10.5px;padding:2px 7px;border-radius:4px;background:var(--panel2);color:var(--dim);border:1px solid var(--line2);}
+  .tag.p1{color:var(--p1);border-color:var(--p1-dim);}
+  .tag.p2{color:var(--p2);border-color:var(--p2-dim);}
+  .chip{display:flex;align-items:center;gap:6px;background:var(--panel2);border:1px solid var(--line2);
+    border-radius:20px;padding:5px 6px 5px 12px;font-size:11.5px;}
+  .chip button{background:transparent;border:none;color:var(--dim);font-size:14px;width:22px;height:22px;border-radius:50%;}
+  .chip button:hover{color:var(--danger);background:var(--panel);}
+  .chips-wrap{display:flex;gap:8px;flex-wrap:wrap;}
+
+  /* ---------- collapsible / resizable side panels ---------- */
+  .side-toggle{
+    display:flex;align-items:center;justify-content:space-between;gap:8px;
+    padding:2px 2px 4px;flex-shrink:0;
+  }
+  .side-toggle .lbl{font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--dim);font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .side-toggle button{
+    background:var(--panel2);border:1px solid var(--line2);color:var(--dim);
+    width:30px;height:30px;border-radius:6px;font-size:13px;flex-shrink:0;
+  }
+  .side-toggle button:hover{color:var(--text);border-color:var(--dim);}
+  .side-content{display:flex;flex-direction:column;gap:14px;min-width:0;}
+  .sidepanel.collapsed{padding:10px 6px !important;}
+  .sidepanel.collapsed .side-content{display:none;}
+  .sidepanel.collapsed .side-toggle .lbl{display:none;}
+  .sidepanel.collapsed .side-toggle button{transform:rotate(180deg);}
+  .resize-handle{width:7px;flex-shrink:0;cursor:col-resize;background:var(--line);position:relative;touch-action:none;}
+  .resize-handle:hover, .resize-handle.dragging{background:var(--accent);}
+  .resize-handle::after{content:"";position:absolute;top:50%;left:50%;width:3px;height:28px;
+    transform:translate(-50%,-50%);border-radius:2px;background:var(--line2);}
+  @media (max-width: 860px){ .resize-handle{display:none;} }
+
+  /* ---------- CHARACTERS tab ---------- */
+  #panel-characters{display:flex;}
+  #panel-characters .left{width:360px;flex-shrink:0;min-width:0;padding:16px;overflow:auto;overflow-x:hidden;display:flex;flex-direction:column;}
+  #panel-characters .right{flex:1;display:flex;flex-direction:column;min-width:0;min-height:280px;}
+  .preview-stage{
+    flex:1;display:flex;align-items:center;justify-content:center;min-height:200px;
+    background:
+      linear-gradient(45deg,#1a1c26 25%,transparent 25%),linear-gradient(-45deg,#1a1c26 25%,transparent 25%),
+      linear-gradient(45deg,transparent 75%,#1a1c26 75%),linear-gradient(-45deg,transparent 75%,#1a1c26 75%);
+    background-size:24px 24px;background-position:0 0,0 12px,12px -12px,-12px 0;
+    background-color:#131520;
+  }
+  #previewCanvas{image-rendering:pixelated;max-width:100%;}
+  .anim-bar{
+    display:flex;gap:8px;padding:12px 16px;border-top:1px solid var(--line);background:var(--panel);
+    flex-wrap:wrap;align-items:center;
+  }
+  .frame-groups{display:flex;flex-direction:column;gap:6px;max-height:230px;overflow:auto;padding-right:4px;}
+  .frame-group{
+    display:flex;align-items:center;gap:8px;background:var(--panel2);border:1px solid var(--line2);
+    border-radius:6px;padding:7px 9px;font-size:12px;min-width:0;
+  }
+  .frame-group .gname{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dim);}
+  .frame-group .gcount{font-family:var(--mono);font-size:10.5px;color:var(--dim);flex-shrink:0;}
+  .frame-group.active{border-color:var(--p1);}
+  .anim-list{display:flex;flex-direction:column;gap:6px;max-height:180px;overflow:auto;}
+  .anim-row{display:flex;align-items:center;gap:6px;background:var(--panel2);border:1px solid var(--line2);border-radius:6px;padding:6px 8px;font-size:11.5px;min-width:0;}
+  .anim-row .nm{flex-shrink:0;font-family:var(--mono);color:var(--text);}
+  .anim-row .meta{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .anim-row button{background:transparent;border:none;color:var(--dim);font-size:13px;padding:2px 4px;flex-shrink:0;}
+  .anim-row button:hover{color:var(--danger);}
+
+  /* ---------- CHARTING tab ---------- */
+  #panel-charting{display:flex;}
+  .chart-toolbar{
+    display:flex;align-items:center;gap:10px;padding:8px 14px;background:var(--panel);
+    border-bottom:1px solid var(--line);flex-shrink:0;font-size:12px;flex-wrap:wrap;
+  }
+  .chart-toolbar .grow{flex:1;}
+  .chart-body{flex:1;display:flex;overflow:hidden;min-height:0;}
+  .chart-side{width:250px;flex-shrink:0;overflow:auto;overflow-x:hidden;min-width:0;padding:16px;display:flex;flex-direction:column;}
+  .chart-main{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0;}
+  .timeline-wrap{flex:1;overflow:auto;position:relative;background:var(--bg2);}
+  .timeline{position:relative;margin:0 auto;}
+  .lane-headers{
+    display:flex;position:sticky;top:0;z-index:5;background:var(--panel);border-bottom:1px solid var(--line2);
+  }
+  .lane-head{
+    width:64px;text-align:center;padding:9px 0;font-size:16px;border-right:1px solid var(--line);color:var(--dim);flex-shrink:0;
+  }
+  .lane-head.p1{color:var(--p1);}
+  .lane-head.p2{color:var(--p2);}
+  .lane-gap{width:22px;flex-shrink:0;border-right:1px solid var(--line);background:var(--panel2);}
+  .grid-row{position:absolute;left:0;right:0;height:1px;background:var(--line);}
+  .grid-row.beat{background:var(--line2);}
+  .grid-row.bar{background:#454b66;}
+  .grid-row.section{height:2px;background:var(--accent);opacity:.65;}
+  .bar-label{position:absolute;left:-46px;font-family:var(--mono);font-size:10px;color:var(--dim);}
+  .section-band{position:absolute;left:0;background:rgba(255,255,255,.012);pointer-events:none;}
+  .section-band.alt{background:rgba(67,230,196,.022);}
+  .section-label{
+    position:absolute;left:4px;font-family:var(--mono);font-size:9.5px;font-weight:700;
+    color:var(--accent);letter-spacing:.4px;pointer-events:none;background:rgba(13,14,19,.6);
+    padding:1px 6px;border-radius:3px;
+  }
+  .note{
+    position:absolute;width:46px;height:18px;border-radius:5px;left:9px;
+    display:flex;align-items:center;justify-content:center;font-size:11px;
+    box-shadow:0 0 0 1px rgba(0,0,0,.4);cursor:pointer;
+  }
+  .note.p1{background:var(--p1);color:#04231c;}
+  .note.p2{background:var(--p2);color:#2b0716;}
+  .sustain{position:absolute;width:6px;left:29px;border-radius:3px;opacity:.55;}
+  .sustain.p1{background:var(--p1);}
+  .sustain.p2{background:var(--p2);}
+  .playhead{position:absolute;left:0;right:0;height:2px;background:var(--accent);z-index:4;box-shadow:0 0 8px var(--accent);}
+  .lanecol{position:absolute;top:0;bottom:0;width:64px;border-right:1px solid var(--line);}
+  .transport{
+    display:flex;align-items:center;gap:8px;padding:10px 14px;background:var(--panel);
+    border-top:1px solid var(--line);flex-shrink:0;flex-wrap:wrap;
+  }
+  .transport .time{font-family:var(--mono);font-size:12px;color:var(--dim);min-width:150px;}
+
+  .modal-backdrop{position:fixed;inset:0;background:rgba(6,7,11,.6);display:none;align-items:center;justify-content:center;z-index:70;padding:16px;}
+  .modal-backdrop.open{display:flex;}
+  .modal{background:var(--panel);border:1px solid var(--line2);border-radius:12px;padding:22px;width:min(340px,100%);}
+  .modal h3{margin:0 0 14px;font-size:14px;}
+  .modal .close-row{display:flex;justify-content:flex-end;margin-top:16px;}
+
+  /* ---------- responsive stacking ---------- */
+  @media (max-width: 860px){
+    #panel-characters{flex-direction:column;}
+    #panel-characters .left{width:100% !important;border-right:none;border-bottom:1px solid var(--line);max-height:44vh;}
+    #panel-characters .left.collapsed{max-height:none;}
+    .chart-body{flex-direction:column;}
+    .chart-side{width:100% !important;border-right:none;border-bottom:1px solid var(--line);max-height:200px;}
+    .chart-side.collapsed{max-height:none;}
+    .topbar .logo{display:none;}
+    .tab-btn{padding:7px 11px;font-size:12px;}
+  }
+
+  /* ---------- PLAY VIEW (gameplay) ---------- */
+  #playView{position:fixed;inset:0;background:#08090d;display:none;flex-direction:column;z-index:40;}
+  #playView.open{display:flex;}
+  .play-topbar{
+    display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--panel);
+    border-bottom:1px solid var(--line);flex-shrink:0;flex-wrap:wrap;
+  }
+  .play-title{font-size:12.5px;font-weight:700;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:38vw;}
+  .play-stage{flex:1;position:relative;overflow:hidden;}
+  #playCanvas{position:absolute;inset:0;width:100%;height:100%;display:block;}
+  .play-overlay{
+    position:absolute;inset:0;display:none;align-items:center;justify-content:center;
+    background:rgba(6,7,11,.72);flex-direction:column;gap:14px;text-align:center;padding:20px;
+  }
+  .play-overlay.show{display:flex;}
+  .play-overlay h2{margin:0;font-size:26px;}
+  .play-overlay .stats{font-family:var(--mono);font-size:13px;color:var(--dim);line-height:1.8;}
+  .play-overlay .stats b{color:var(--text);}
+
+  /* ---------- touch controls (auto-shown on mobile/touch devices) ---------- */
+  .touch-controls{
+    position:absolute;left:0;right:0;bottom:0;z-index:6;
+    display:none;justify-content:center;gap:16px;
+    padding:14px 14px calc(14px + env(safe-area-inset-bottom));
+    pointer-events:none;
+  }
+  .touch-controls.show{display:flex;}
+  .touch-btn{
+    pointer-events:auto;width:58px;height:58px;border-radius:50%;
+    background:rgba(67,230,196,.14);border:2px solid var(--p1);color:var(--p1);
+    font-size:24px;display:flex;align-items:center;justify-content:center;
+    -webkit-tap-highlight-color:transparent;user-select:none;touch-action:none;
+    transition:transform .06s, background .06s;
+  }
+  .touch-btn.active{background:rgba(67,230,196,.42);transform:scale(0.9);}
+
+  ::-webkit-scrollbar{width:9px;height:9px;}
+  ::-webkit-scrollbar-thumb{background:var(--line2);border-radius:5px;}
+  ::-webkit-scrollbar-track{background:transparent;}
+</style>
+</head>
+<body>
+
+<div id="startMenu" class="fullscreen-view open" style="position:fixed;">
+  <h1>SORO ENGINE</h1>
+  <p>заглушка игрового экрана</p>
+  <div class="stub-actions">
+    <button class="btn btn-primary" id="menuFreeplayBtn">🎵 Freeplay</button>
+    <button class="btn" id="menuOptionsBtn">⚙ Options</button>
+    <button class="btn" id="menuMultiplayerBtn">🌐 Мультиплеер</button>
+    <button class="btn" id="menuEditorBtn">🛠 Chart Editor</button>
+  </div>
+  <div class="hint">или нажми <kbd>7</kbd> для Chart Editor в любой момент</div>
+</div>
+
+<div id="freeplayView" class="fullscreen-view">
+  <div class="play-topbar">
+    <button class="icon-btn" id="freeplayBackBtn" title="Назад">←</button>
+    <span class="play-title">Freeplay</span>
+    <span class="grow" style="flex:1"></span>
+    <button class="btn btn-primary" id="freeplayAddBtn">+ Добавить песню</button>
+  </div>
+  <div class="col" id="freeplayList" style="max-width:640px;margin:0 auto;width:100%;"></div>
+</div>
+
+<div id="multiplayerView" class="fullscreen-view">
+  <div class="play-topbar">
+    <button class="icon-btn" id="mpBackBtn" title="Назад">←</button>
+    <span class="play-title">Мультиплеер</span>
+  </div>
+  <div class="col" style="max-width:520px;margin:0 auto;width:100%;">
+
+    <div class="card" id="mpConnectCard">
+      <h3>Сервер</h3>
+      <div class="field">
+        <label>Адрес relay-сервера (ws:// или wss://)</label>
+        <input type="text" id="mpServerUrl" placeholder="wss://your-server.example.com">
+      </div>
+      <button class="btn btn-primary" id="mpConnectBtn" style="width:100%;">Подключиться</button>
+      <div class="hint-text" id="mpConnectStatus" style="margin-top:8px;">Не подключено. Разверни сервер (server.js) и укажи его адрес.</div>
+    </div>
+
+    <div class="card" id="mpSetupCard" style="display:none;">
+      <h3>Твой ник</h3>
+      <div class="field"><input type="text" id="mpNickname" value="Player"></div>
+    </div>
+
+    <div class="card" id="mpAudioCard" style="display:none;">
+      <h3>Аудио для матча <span class="tag">нужно каждому игроку</span></h3>
+      <div class="field">
+        <label>Inst.ogg</label>
+        <div class="filepick" id="mpInstPick"><span class="name">файл не выбран</span><button type="button" onclick="document.getElementById('mpInstFile').click()">Выбрать</button></div>
+        <input type="file" id="mpInstFile" accept=".ogg,audio/ogg" style="display:none">
+      </div>
+      <div class="field">
+        <label>Voices.ogg <span class="tag">опционально</span></label>
+        <div class="filepick" id="mpVoicesPick"><span class="name">файл не выбран</span><button type="button" onclick="document.getElementById('mpVoicesFile').click()">Выбрать</button></div>
+        <input type="file" id="mpVoicesFile" accept=".ogg,audio/ogg" style="display:none">
+      </div>
+      <div class="hint-text">Сервер не передаёт сам звук — у обоих игроков должен быть загружен тот же файл, что выбрал хост в Song.</div>
+    </div>
+
+    <div class="card" id="mpSongCard" style="display:none;">
+      <h3>Песня <span class="tag">выбирает хост, гостю прилетит автоматически</span></h3>
+      <div class="field">
+        <label>Из Freeplay</label>
+        <select id="mpSongSelect"><option value="">не выбрана</option></select>
+      </div>
+      <div class="hint-text" id="mpSongStatus">Песня не выбрана.</div>
+    </div>
+
+    <div class="card" id="mpCharCard" style="display:none;">
+      <h3>Персонажи</h3>
+      <div class="row">
+        <div class="field"><label>Твой персонаж</label><select id="mpMyChar"><option value="">без персонажа</option></select></div>
+        <div class="field"><label>Персонаж соперника</label><select id="mpOppChar"><option value="">без персонажа</option></select></div>
+      </div>
+    </div>
+
+    <div class="card" id="mpActionsCard" style="display:none;">
+      <h3>Лобби</h3>
+      <div class="field">
+        <label>Тип лобби</label>
+        <select id="mpLobbyType">
+          <option value="public">Публичное</option>
+          <option value="private">Приватное</option>
+        </select>
+      </div>
+      <button class="btn btn-p1" id="mpCreateBtn" style="width:100%;">+ Создать лобби</button>
+
+      <div class="field" style="margin-top:14px;">
+        <label>Или войти по коду</label>
+        <div class="row">
+          <input type="text" id="mpJoinCode" placeholder="FNFLOBBY-XXXXXX" style="flex:1;text-transform:uppercase;">
+          <button class="btn" id="mpJoinBtn">Войти</button>
+        </div>
+      </div>
+
+      <div class="field" style="margin-top:14px;">
+        <button class="btn" id="mpRefreshPublicBtn" style="width:100%;">🔄 Публичные лобби</button>
+      </div>
+      <div id="mpPublicList" class="chips-wrap" style="margin-top:8px;"></div>
+    </div>
+
+    <div class="card" id="mpLobbyCard" style="display:none;">
+      <h3>Лобби <span id="mpLobbyCodeLabel" class="tag"></span>
+        <button class="icon-btn" id="mpCopyCodeBtn" style="width:24px;height:24px;font-size:11px;vertical-align:middle;" title="Скопировать код">⧉</button>
+      </h3>
+      <div id="mpPlayersList" style="display:flex;flex-direction:column;gap:8px;"></div>
+      <div class="row" style="margin-top:12px;">
+        <button class="btn btn-primary" id="mpReadyBtn" style="flex:1;">Готов</button>
+        <button class="btn btn-danger" id="mpLeaveBtn">Выйти</button>
+      </div>
+      <div class="hint-text" id="mpLobbyHint" style="margin-top:8px;">Ждём второго игрока…</div>
+    </div>
+
+    <div class="card" id="mpRolesCard" style="display:none;">
+      <h3>Роли <span class="tag">назначает хост</span></h3>
+      <div class="row">
+        <div class="field"><label>Кто играет за игрока</label><select id="mpRolePlayer"></select></div>
+        <div class="field"><label>Кто играет за оппонента</label><select id="mpRoleOpponent"></select></div>
+      </div>
+      <div class="hint-text">Каждый жмёт свои же клавиши (Options → Управление) — они просто попадают на дорожку той роли, которую назначили.</div>
+    </div>
+
+  </div>
+</div>
+
+<div id="optionsView" class="fullscreen-view">
+  <div class="play-topbar">
+    <button class="icon-btn" id="optionsBackBtn" title="Назад">←</button>
+    <span class="play-title">Options</span>
+  </div>
+  <div class="col" style="max-width:420px;margin:0 auto;width:100%;">
+    <div class="card">
+      <h3>Управление (дорожка игрока)</h3>
+      <div id="keybindList" style="display:flex;flex-direction:column;gap:8px;"></div>
+      <div class="hint-text" style="margin-top:10px;">Нажми "Изменить" и затем — нужную клавишу. Если она уже занята другой дорожкой, дорожки поменяются клавишами местами.</div>
+    </div>
+    <div class="card">
+      <h3>Charting</h3>
+      <label class="checkline"><input type="checkbox" id="clickSoundToggle3" checked> Звук клика при нажатии стрелки игрока (в редакторе)</label>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="addSongModal">
+  <div class="modal" style="width:min(380px,100%);">
+    <h3>Добавить песню в Freeplay</h3>
+    <div class="field">
+      <label>Song JSON</label>
+      <div class="filepick" id="songJsonPick"><span class="name">файл не выбран</span><button type="button" onclick="document.getElementById('songJsonFile').click()">Выбрать</button></div>
+      <input type="file" id="songJsonFile" accept=".json,application/json" style="display:none">
+    </div>
+    <div class="field">
+      <label>Inst.ogg <span class="tag">обязательно</span></label>
+      <div class="filepick" id="songInstPick"><span class="name">файл не выбран</span><button type="button" onclick="document.getElementById('songInstFile').click()">Выбрать</button></div>
+      <input type="file" id="songInstFile" accept=".ogg,audio/ogg" style="display:none">
+    </div>
+    <div class="field">
+      <label>Voices.ogg <span class="tag">опционально</span></label>
+      <div class="filepick" id="songVoicesPick"><span class="name">файл не выбран</span><button type="button" onclick="document.getElementById('songVoicesFile').click()">Выбрать</button></div>
+      <input type="file" id="songVoicesFile" accept=".ogg,audio/ogg" style="display:none">
+    </div>
+    <div class="hint-text" id="addSongError" style="color:var(--danger);"></div>
+    <div class="close-row" style="justify-content:space-between;">
+      <button class="btn" id="addSongCancel">Отмена</button>
+      <button class="btn btn-primary" id="addSongConfirm">+ Добавить</button>
+    </div>
+  </div>
+</div>
+
+<div id="editor">
+  <div class="topbar">
+    <div class="logo">CHART EDITOR</div>
+    <div class="tabs-scroll">
+      <button class="tab-btn active" data-tab="data">Data</button>
+      <button class="tab-btn" data-tab="characters">Characters</button>
+      <button class="tab-btn" data-tab="charting">Charting</button>
+    </div>
+    <div class="topbar-actions">
+      <button class="icon-btn" id="settingsBtn" title="Настройки">⚙</button>
+      <button class="icon-btn" id="closeBtn" title="Закрыть (7)">✕</button>
+    </div>
+  </div>
+
+  <div class="panels">
+
+    <!-- ============ DATA TAB ============ -->
+    <div class="panel active" id="panel-data">
+      <div class="col" style="width:100%;max-width:520px;">
+        <div class="card">
+          <h3>Song info</h3>
+          <div class="row">
+            <div class="field">
+              <label>Название песни</label>
+              <input type="text" id="songName" value="New Song">
+            </div>
+            <div class="field">
+              <label>BPM</label>
+              <input type="number" id="songBpm" value="100" min="1">
+            </div>
+          </div>
+          <div class="row">
+            <div class="field">
+              <label>Scroll speed</label>
+              <input type="number" id="songSpeed" value="1" step="0.1" min="0.1">
+            </div>
+            <div class="field">
+              <label>Тактовый размер (num/4)</label>
+              <input type="number" id="songBeats" value="4" min="1">
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>Персонажи</h3>
+          <div class="field">
+            <label>Игрок (Boyfriend)</label>
+            <select id="dataPlayerChar"><option value="">не выбран</option></select>
+          </div>
+          <div class="field">
+            <label>Оппонент</label>
+            <select id="dataOpponentChar"><option value="">не выбран</option></select>
+          </div>
+          <div class="hint-text">Список берётся из библиотеки на вкладке Characters → «★ Добавить в библиотеку». Сохраняется вместе с песней.</div>
+        </div>
+
+        <div class="card">
+          <h3>Audio — Inst</h3>
+          <div class="field">
+            <label>Inst.ogg <span class="tag">обязательно</span></label>
+            <div class="filepick" id="instPick">
+              <span class="name">файл не выбран (.ogg)</span>
+              <button onclick="document.getElementById('instFile').click()">Выбрать</button>
+            </div>
+            <input type="file" id="instFile" accept=".ogg,audio/ogg" style="display:none">
+          </div>
+          <div class="hint-text" id="instInfo"></div>
+        </div>
+
+        <div class="card">
+          <h3>Audio — Voices</h3>
+          <div class="field">
+            <label>Voices.ogg <span class="tag">опционально</span></label>
+            <div class="filepick" id="voicesPick">
+              <span class="name">файл не выбран (.ogg)</span>
+              <button onclick="document.getElementById('voicesFile').click()">Выбрать</button>
+            </div>
+            <input type="file" id="voicesFile" accept=".ogg,audio/ogg" style="display:none">
+          </div>
+          <div class="hint-text" id="voicesInfo"></div>
+        </div>
+
+        <div class="hint-text">Эти данные попадут в JSON песни (вкладка Charting → Save Song JSON) вместе с нотами чарта.</div>
+      </div>
+    </div>
+
+    <!-- ============ CHARACTERS TAB ============ -->
+    <div class="panel" id="panel-characters">
+      <div class="left sidepanel" id="charSidebar">
+        <div class="side-toggle">
+          <span class="lbl">Настройки персонажа</span>
+          <button id="charSidebarToggle" title="Свернуть/развернуть панель">⟨⟨</button>
+        </div>
+        <div class="side-content">
+        <div class="row" style="gap:8px;">
+          <button class="btn btn-p1" id="newCharBtn" style="flex:1;">🆕 Новый персонаж</button>
+          <button class="btn" id="loadCharBtn" style="flex:1;">⬆ Загрузить JSON</button>
+        </div>
+        <input type="file" id="charJsonFile" accept=".json,application/json" style="display:none">
+        <div class="card">
+          <h3>Character</h3>
+          <div class="field">
+            <label>Внутреннее имя (id)</label>
+            <input type="text" id="charId" value="boyfriend">
+          </div>
+          <div class="field">
+            <label>Отображаемое имя</label>
+            <input type="text" id="charDisplay" value="Boyfriend">
+          </div>
+          <div class="row">
+            <div class="field">
+              <label>Scale</label>
+              <input type="number" id="charScale" value="1" step="0.05">
+            </div>
+            <div class="field">
+              <label>Flip X</label>
+              <select id="charFlip"><option value="0">нет</option><option value="1">да</option></select>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>Atlas source</h3>
+          <div class="field">
+            <label>XML файл</label>
+            <div class="filepick" id="xmlPick">
+              <span class="name">файл не выбран (.xml)</span>
+              <button onclick="document.getElementById('xmlFile').click()">Выбрать</button>
+            </div>
+            <input type="file" id="xmlFile" accept=".xml,text/xml" style="display:none">
+          </div>
+          <div class="field">
+            <label>Атлас (изображение)</label>
+            <div class="filepick" id="imgPick">
+              <span class="name">файл не выбран (.png/.jpg/.webp)</span>
+              <button onclick="document.getElementById('imgFile').click()">Выбрать</button>
+            </div>
+            <input type="file" id="imgFile" accept=".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp" style="display:none">
+          </div>
+          <div class="field">
+            <label>Формат XML</label>
+            <select id="xmlFormat">
+              <option value="auto">Авто-определение</option>
+              <option value="sparrow">XML Sparrow v1</option>
+              <option value="xmlv2">XML v2 (generic)</option>
+            </select>
+          </div>
+          <div class="hint-text" id="xmlInfo">Загрузите XML и картинку — фреймы сгруппируются по имени автоматически.</div>
+        </div>
+
+        <div class="card">
+          <h3>Health icon <span class="tag">опционально</span></h3>
+          <div class="field">
+            <label>Иконка (.png/.jpg/.webp) — левая половина: живая, правая: умирает</label>
+            <div class="filepick" id="iconPick">
+              <span class="name">файл не выбран</span>
+              <button type="button" onclick="document.getElementById('iconFile').click()">Выбрать</button>
+            </div>
+            <input type="file" id="iconFile" accept=".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp" style="display:none">
+          </div>
+          <label class="checkline"><input type="checkbox" id="iconFlipX"> перевернуть иконку по X</label>
+          <div class="hint-text" id="iconInfo">Один файл 300×150 (можно меньше, но не менее 200×150): левые 150×150 — обычное лицо, правые 150×150 — «проигрывает». Движок сам режет пополам и показывает на полоске HP нужной стороной.</div>
+        </div>
+
+        <div class="card">
+          <h3>Frame groups <span class="gcount" id="groupCount"></span></h3>
+          <div class="frame-groups" id="frameGroups"></div>
+        </div>
+
+        <div class="card">
+          <h3>Add animation</h3>
+          <div class="hint-text" style="margin-bottom:8px;">1) кликни группу фреймов выше · 2) выбери, какой анимацией игры она станет · 3) добавь</div>
+          <div class="field">
+            <label>Выбранная группа</label>
+            <div class="hint-text" id="selectedGroupLabel" style="font-family:var(--mono);color:var(--text);">— не выбрана —</div>
+          </div>
+          <div class="field">
+            <label>Слот анимации в игре</label>
+            <select id="animName">
+              <option value="idle">idle — обязательна, иначе персонаж не появится</option>
+              <option value="singLEFT">singLEFT</option>
+              <option value="singDOWN">singDOWN</option>
+              <option value="singUP">singUP</option>
+              <option value="singRIGHT">singRIGHT</option>
+              <option value="__custom">Другое (ввести вручную)…</option>
+            </select>
+            <input type="text" id="animNameCustom" placeholder="своё имя анимации" style="display:none;margin-top:6px;">
+          </div>
+          <div class="row">
+            <div class="field">
+              <label>FPS</label>
+              <input type="number" id="animFps" value="24" min="1">
+            </div>
+            <div class="field">
+              <label>Loop</label>
+              <select id="animLoop"><option value="1">да</option><option value="0">нет</option></select>
+            </div>
+          </div>
+          <button class="btn btn-p1" id="addAnimBtn" style="width:100%;margin-top:4px;">+ Добавить из выбранной группы</button>
+        </div>
+
+        <div class="card">
+          <h3>Animations list</h3>
+          <div class="anim-list" id="animList"></div>
+        </div>
+
+        <button class="btn btn-primary" id="saveCharBtn">⬇ Сгенерировать character.json</button>
+        <button class="btn btn-p1" id="addLibraryBtn">★ Добавить в библиотеку (для теста в игре)</button>
+
+        <div class="card">
+          <h3>Библиотека персонажей <span class="gcount" id="libCount"></span></h3>
+          <div class="chips-wrap" id="libraryChips"></div>
+          <div class="hint-text" style="margin-top:8px;">Персонажи из библиотеки доступны для выбора на экране "Играть".</div>
+        </div>
+        </div>
+      </div>
+      <div class="resize-handle" id="charResizeHandle"></div>
+
+      <div class="right">
+        <div class="preview-stage">
+          <canvas id="previewCanvas" width="360" height="360"></canvas>
+        </div>
+        <div class="anim-bar">
+          <button class="btn" id="playAnimBtn">▶ Play</button>
+          <span class="hint-text" id="previewLabel">нет анимации</span>
+          <div class="spacer" style="flex:1"></div>
+          <label class="checkline"><input type="checkbox" id="showBounds"> границы фрейма</label>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ CHARTING TAB ============ -->
+    <div class="panel" id="panel-charting">
+      <div style="display:flex;flex-direction:column;flex:1;overflow:hidden;min-width:0;">
+        <div class="chart-toolbar">
+          <span>Zoom</span>
+          <input type="range" id="zoomRange" min="0.5" max="3" step="0.1" value="1.2" style="width:110px;">
+          <span>Snap</span>
+          <select id="snapSelect">
+            <option value="4">1/4</option>
+            <option value="8">1/8</option>
+            <option value="16" selected>1/16</option>
+            <option value="32">1/32</option>
+          </select>
+          <span>Такты/секция</span>
+          <input type="number" id="sectionBarsInput" min="1" value="4" style="width:52px;">
+          <span class="grow"></span>
+          <span class="tag" id="noteCountTag">0 нот</span>
+          <button class="btn" id="loadSongBtn">⬆ Load Song JSON</button>
+          <button class="btn" id="testPlayBtn">🎮 Тест в игре</button>
+          <button class="btn btn-primary" id="saveSongBtn">⬇ Save Song JSON</button>
+        </div>
+
+        <div class="chart-body">
+          <div class="chart-side sidepanel collapsed" id="chartSidebar">
+            <div class="side-toggle">
+              <span class="lbl">Справка</span>
+              <button id="chartSidebarToggle" title="Свернуть/развернуть панель">⟨⟨</button>
+            </div>
+            <div class="side-content">
+            <div class="card">
+              <h3>Как пользоваться</h3>
+              <div class="hint-text">
+                Клик по клетке — поставить/убрать ноту.<br>
+                Зажать и потянуть вниз — задать sustain.<br>
+                Пробел — play/pause.<br>
+                Твои клавиши (Options → Управление) во время проигрывания — тест-клик по своей дорожке (сторона P1).
+              </div>
+            </div>
+            <div class="card">
+              <h3>Lanes</h3>
+              <div class="hint-text">
+                <span class="tag p1">P1 / Player</span> — левые 4 столбца<br>
+                <span class="tag p2">P2 / Opponent</span> — правые 4 столбца
+              </div>
+            </div>
+            </div>
+          </div>
+          <div class="resize-handle" id="chartResizeHandle"></div>
+
+          <div class="chart-main">
+            <div class="timeline-wrap" id="timelineWrap">
+              <div class="lane-headers">
+                <div class="lane-head p1">←</div>
+                <div class="lane-head p1">↓</div>
+                <div class="lane-head p1">↑</div>
+                <div class="lane-head p1">→</div>
+                <div class="lane-gap"></div>
+                <div class="lane-head p2">←</div>
+                <div class="lane-head p2">↓</div>
+                <div class="lane-head p2">↑</div>
+                <div class="lane-head p2">→</div>
+              </div>
+              <div class="timeline" id="timeline"></div>
+            </div>
+            <div class="transport">
+              <button class="btn btn-primary" id="playChartBtn">▶ Play</button>
+              <button class="btn" id="stopChartBtn">⏹ Stop</button>
+              <span class="time" id="timeLabel">00:00.00 / 00:00.00</span>
+              <span class="grow"></span>
+              <label class="checkline"><input type="checkbox" id="clickSoundToggle" checked> звук клика по стрелке</label>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<button class="fab-close" id="fabClose" title="Закрыть редактор">✕</button>
+
+<div class="modal-backdrop" id="settingsModal">
+  <div class="modal">
+    <h3>Настройки Charting</h3>
+    <label class="checkline" style="margin-bottom:10px;">
+      <input type="checkbox" id="clickSoundToggle2" checked> Звук клика при нажатии стрелки игрока
+    </label>
+    <div class="hint-text">Синтезируется на лету (Web Audio), внешний файл не нужен.</div>
+    <div class="close-row"><button class="btn btn-primary" id="closeSettings">Готово</button></div>
+  </div>
+</div>
+
+<!-- ============ PLAY VIEW (actual gameplay) ============ -->
+<div id="playView">
+  <div class="play-topbar">
+    <button class="icon-btn" id="playBackBtn" title="Назад">←</button>
+    <span class="play-title" id="playSongTitle">—</span>
+    <span class="grow" style="flex:1"></span>
+    <select id="playCharSelectOpp" style="max-width:130px;" title="Оппонент">
+      <option value="">Оппонент: нет</option>
+    </select>
+    <select id="playCharSelectPlayer" style="max-width:130px;" title="Игрок">
+      <option value="">Игрок: нет</option>
+    </select>
+    <button class="btn btn-primary" id="playStartBtn">▶ Старт</button>
+  </div>
+  <div class="play-stage">
+    <canvas id="playCanvas"></canvas>
+    <div class="play-overlay" id="playSummary">
+      <h2 id="summaryTitle">Результат</h2>
+      <div class="stats" id="summaryStats"></div>
+      <div class="stub-actions">
+        <button class="btn btn-primary" id="summaryRetry">↻ Ещё раз</button>
+        <button class="btn" id="summaryBack">← Назад</button>
+      </div>
+    </div>
+    <div class="play-overlay" id="mpCountdown">
+      <h2 id="mpCountdownNum" style="font-size:64px;">3</h2>
+      <div class="hint-text">Матч начинается…</div>
+    </div>
+    <div class="touch-controls" id="touchControls">
+      <button class="touch-btn" data-lane="0">←</button>
+      <button class="touch-btn" data-lane="1">↓</button>
+      <button class="touch-btn" data-lane="2">↑</button>
+      <button class="touch-btn" data-lane="3">→</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+"use strict";
+
+/* ============================================================
+   DEVICE DETECTION — auto, used for touch controls + multiplayer device icon
+   ============================================================ */
+function detectDeviceType(){
+  const coarse = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+  const touch = (navigator.maxTouchPoints||0) > 0 || 'ontouchstart' in window;
+  const uaMobile = /Android|iPhone|iPad|iPod|Mobile|Windows Phone|BlackBerry|IEMobile/i.test(navigator.userAgent||'');
+  return ((coarse && touch) || uaMobile) ? 'mobile' : 'desktop';
+}
+function deviceIcon(type){ return type==='mobile' ? '📱' : '🖥️'; }
+
+/* ============================================================
+   GLOBAL STATE
+   ============================================================ */
+const state = {
+  editorOpen:false,
+  activeTab:'data',
+  settings:{ clickSound:true, keyBindings:['ArrowLeft','ArrowDown','ArrowUp','ArrowRight'] }, // index = lane 0..3 (P1)
+  device:{ type: detectDeviceType() },
+
+  song:{
+    name:'New Song', bpm:100, speed:1, beatsPerBar:4, sectionBars:4,
+    instFile:null, instURL:null, instDuration:0,
+    voicesFile:null, voicesURL:null, voicesDuration:0,
+    playerCharId:'', opponentCharId:'',
+    notes:[] // {t(ms), lane(0-7), sustain(ms)}
+  },
+
+  char:{
+    id:'boyfriend', display:'Boyfriend', scale:1, flipX:false,
+    xmlFile:null, imgFile:null, imgURL:null, imgEl:null,
+    iconFile:null, iconURL:null, iconEl:null, iconFlipX:false,
+    format:null, // 'sparrow' | 'xmlv2'
+    frames:[], groups:{}, activeGroup:null,
+    animations:[] // {anim,prefix,fps,loop,frameCount}
+  },
+
+  library:[], // saved characters usable in Play view
+  songLibrary:[], // songs added in Freeplay: {id,name,bpm,speed,beatsPerBar,notes,instBuf,voicesBuf,instName,voicesName}
+  activePlaySong:null, // which songLibrary entry Play view is using (null = use the live Chart Editor song)
+
+  preview:{ playing:false, animIndex:-1, frameIndex:0, lastTs:0 },
+
+  chart:{
+    playing:false, startedAtPerf:0, startOffset:0,
+    audioCtx:null, instBuf:null, voicesBuf:null, instSrc:null, voicesSrc:null,
+    pxPerSecond:150, zoom:1.2, snap:16,
+    dragNote:null
+  },
+
+  play:null, // active gameplay session, created by startPlaySession()
+
+  mp:{
+    ws:null, connected:false, serverUrl:'', nickname:'Player',
+    code:null, isHost:false, youId:null, players:[], // [{id,name,ready,device}]
+    song:null, instBuf:null, voicesBuf:null,
+    roles:null, myRole:null, oppRole:null, // {playerId,opponentId} — who controls which lane set
+    myDevice: detectDeviceType(), myPing:null, oppPing:null, pingIntervalId:null,
+    active:false, // true while a synced multiplayer match is actually being played
+    oppStats:{score:0, health:50, combo:0},
+    oppFinished:null, myFinished:null
+  }
+};
+let mpReady = false;
+
+const LANE_ANIM = ['singLEFT','singDOWN','singUP','singRIGHT'];
+const LANE_GLYPH = ['←','↓','↑','→'];
+const LANE_NAMES = ['Влево','Вниз','Вверх','Вправо'];
+
+function keyLabel(code){
+  if(!code) return '—';
+  const special = {ArrowLeft:'←', ArrowDown:'↓', ArrowUp:'↑', ArrowRight:'→', Space:'Space', Enter:'Enter'};
+  if(special[code]) return special[code];
+  if(code.startsWith('Key')) return code.slice(3);
+  if(code.startsWith('Digit')) return code.slice(5);
+  return code;
+}
+
+function $(id){ return document.getElementById(id); }
+function fmtTime(ms){
+  ms = Math.max(0, ms|0);
+  const m = Math.floor(ms/60000);
+  const s = Math.floor((ms%60000)/1000);
+  const cs = Math.floor((ms%1000)/10);
+  return String(m).padStart(2,'0')+':'+String(s).padStart(2,'0')+'.'+String(cs).padStart(2,'0');
+}
+function fmtTimeShort(ms){ // M:SS — used for the in-game countdown, no centiseconds
+  ms = Math.max(0, ms|0);
+  const m = Math.floor(ms/60000);
+  const s = Math.floor((ms%60000)/1000);
+  return m+':'+String(s).padStart(2,'0');
+}
+function escapeHtml(s){ return (s||'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+/* ============================================================
+   SCREEN MANAGER — startMenu / freeplay / options / multiplayer / play
+   ============================================================ */
+function showScreen(id){
+  ['startMenu','freeplayView','optionsView','multiplayerView','playView'].forEach(s=>{
+    $(s).classList.toggle('open', s===id);
+  });
+}
+$('menuFreeplayBtn').addEventListener('click', ()=>{ renderFreeplayList(); showScreen('freeplayView'); });
+$('freeplayBackBtn').addEventListener('click', ()=> showScreen('startMenu'));
+$('menuOptionsBtn').addEventListener('click', ()=>{ renderKeybinds(); showScreen('optionsView'); });
+$('optionsBackBtn').addEventListener('click', ()=> showScreen('startMenu'));
+
+/* ---- Options: rebindable controls ---- */
+function renderKeybinds(){
+  const wrap = $('keybindList');
+  wrap.innerHTML = '';
+  LANE_GLYPH.forEach((g,i)=>{
+    const row = document.createElement('div');
+    row.className = 'kb-row';
+    row.innerHTML = `<span class="kb-name">${g} ${LANE_NAMES[i]}</span><span class="tag" id="kb-label-${i}">${keyLabel(state.settings.keyBindings[i])}</span>`;
+    const btn = document.createElement('button');
+    btn.textContent = 'Изменить';
+    btn.addEventListener('click', ()=> startRebind(i, btn, row));
+    row.appendChild(btn);
+    wrap.appendChild(row);
+  });
+}
+function startRebind(lane, btnEl, rowEl){
+  btnEl.textContent = 'Нажми клавишу…';
+  btnEl.disabled = true;
+  rowEl.classList.add('listening');
+  const handler = (e)=>{
+    e.preventDefault();
+    e.stopPropagation();
+    e.stopImmediatePropagation();
+    const newCode = e.code;
+    const otherIdx = state.settings.keyBindings.indexOf(newCode);
+    if(otherIdx>=0 && otherIdx!==lane){
+      // key already used elsewhere — swap the two lanes' bindings instead of leaving a duplicate
+      state.settings.keyBindings[otherIdx] = state.settings.keyBindings[lane];
+    }
+    state.settings.keyBindings[lane] = newCode;
+    document.removeEventListener('keydown', handler, true);
+    renderKeybinds();
+  };
+  document.addEventListener('keydown', handler, true);
+}
+$('menuEditorBtn').addEventListener('click', ()=> openEditor());
+$('menuMultiplayerBtn').addEventListener('click', ()=>{
+  refreshMpCharSelects(); refreshMpSongSelect();
+  showScreen('multiplayerView');
+  // players never type an address — auto-connect to the deployed relay server if one is configured
+  if(!state.mp.connected && DEFAULT_MP_SERVER_URL && !DEFAULT_MP_SERVER_URL.includes('YOUR-APP-NAME')){
+    $('mpServerUrl').value = DEFAULT_MP_SERVER_URL;
+    connectMultiplayer(DEFAULT_MP_SERVER_URL);
+  }
+});
+
+/* ============================================================
+   MULTIPLAYER — WebSocket relay client (lobbies, sync start, live stats)
+   ============================================================ */
+// Set this once you've deployed mp-server/ (see README) — then the "🌐 Мультиплеер" button
+// connects everyone automatically, nobody has to type a server address.
+const DEFAULT_MP_SERVER_URL = 'wss://YOUR-APP-NAME.onrender.com';
+
+let mpAutoRetryCount = 0;
+let mpAutoRetryTimer = null;
+function mpSend(obj){
+  if(state.mp.ws && state.mp.ws.readyState===1) state.mp.ws.send(JSON.stringify(obj));
+}
+$('mpBackBtn').addEventListener('click', ()=>{
+  if(state.mp.code) mpSend({type:'leave_lobby'});
+  showScreen('startMenu');
+});
+$('mpConnectBtn').addEventListener('click', ()=>{
+  const url = $('mpServerUrl').value.trim();
+  if(!url){ $('mpConnectStatus').textContent = 'Укажи адрес сервера.'; return; }
+  mpAutoRetryCount = 0; // a manual click resets the auto-retry budget
+  connectMultiplayer(url);
+});
+function connectMultiplayer(url, isAutoRetry){
+  let ws;
+  try{ ws = new WebSocket(url); }
+  catch(err){ $('mpConnectStatus').textContent = '⚠ Некорректный адрес: '+err.message; return; }
+  state.mp.serverUrl = url;
+  if(!isAutoRetry) $('mpConnectStatus').textContent = 'Подключение…';
+  ws.addEventListener('open', ()=>{
+    mpAutoRetryCount = 0;
+    if(mpAutoRetryTimer){ clearTimeout(mpAutoRetryTimer); mpAutoRetryTimer = null; }
+    state.mp.connected = true;
+    state.mp.ws = ws;
+    $('mpConnectStatus').textContent = '✓ Подключено к '+url+' ('+deviceIcon(state.mp.myDevice)+' '+state.mp.myDevice+')';
+    ['mpSetupCard','mpAudioCard','mpSongCard','mpCharCard','mpActionsCard'].forEach(id=> $(id).style.display='');
+    refreshMpCharSelects(); refreshMpSongSelect();
+    if(state.mp.pingIntervalId) clearInterval(state.mp.pingIntervalId);
+    mpSend({type:'ping', t:Date.now()});
+    state.mp.pingIntervalId = setInterval(()=> mpSend({type:'ping', t:Date.now()}), 2500);
+  });
+  ws.addEventListener('message', (ev)=>{
+    let msg; try{ msg = JSON.parse(ev.data); }catch(e){ return; }
+    handleMpMessage(msg);
+  });
+  ws.addEventListener('close', ()=>{
+    state.mp.connected = false; state.mp.ws = null;
+    $('mpLobbyCard').style.display = 'none';
+    ['mpSetupCard','mpAudioCard','mpSongCard','mpCharCard','mpActionsCard'].forEach(id=> $(id).style.display='none');
+    if(state.mp.pingIntervalId){ clearInterval(state.mp.pingIntervalId); state.mp.pingIntervalId = null; }
+    // free-tier hosts (Render etc.) sleep after inactivity and need ~30-60s to wake up on the
+    // first connection — auto-retry a few times instead of just failing once
+    if(mpAutoRetryCount < 15){
+      mpAutoRetryCount++;
+      $('mpConnectStatus').textContent = 'Сервер просыпается (бесплатный хостинг засыпает без активности)… попытка '+mpAutoRetryCount+'/15';
+      mpAutoRetryTimer = setTimeout(()=> connectMultiplayer(url, true), 5000);
+    } else {
+      $('mpConnectStatus').textContent = 'Не удалось достучаться до сервера. Проверь, что он задеплоен и жив.';
+    }
+  });
+  ws.addEventListener('error', ()=>{});
+}
+
+function refreshMpSongSelect(){
+  const sel = $('mpSongSelect');
+  const prev = sel.value;
+  sel.innerHTML = '<option value="">не выбрана</option>';
+  state.songLibrary.forEach(s=>{
+    const o = document.createElement('option'); o.value=s.id; o.textContent=s.name; sel.appendChild(o);
+  });
+  sel.value = state.songLibrary.some(s=>s.id===prev) ? prev : '';
+}
+function refreshMpCharSelects(){
+  ['mpMyChar','mpOppChar'].forEach(id=>{
+    const sel = $(id); const prev = sel.value;
+    sel.innerHTML = '<option value="">без персонажа</option>';
+    state.library.forEach(c=>{
+      const o = document.createElement('option'); o.value=c.id; o.textContent=c.label; sel.appendChild(o);
+    });
+    sel.value = state.library.some(c=>c.id===prev) ? prev : '';
+  });
+}
+
+$('mpInstFile').addEventListener('change', async (e)=>{
+  const f = e.target.files[0]; if(!f) return;
+  pickFileUI('mpInstPick', f.name, true);
+  try{ state.mp.instBuf = await getAudioCtx().decodeAudioData((await f.arrayBuffer()).slice(0)); }
+  catch(err){ alert('Не удалось декодировать Inst.ogg: '+err.message); }
+});
+$('mpVoicesFile').addEventListener('change', async (e)=>{
+  const f = e.target.files[0]; if(!f) return;
+  pickFileUI('mpVoicesPick', f.name, true);
+  try{ state.mp.voicesBuf = await getAudioCtx().decodeAudioData((await f.arrayBuffer()).slice(0)); }
+  catch(err){ alert('Не удалось декодировать Voices.ogg: '+err.message); }
+});
+
+$('mpSongSelect').addEventListener('change', ()=>{
+  if(!state.mp.isHost) return;
+  const s = state.songLibrary.find(s=>s.id===$('mpSongSelect').value);
+  if(!s) return;
+  const song = {
+    songName:s.name, bpm:s.bpm, speed:s.speed, beatsPerBar:s.beatsPerBar, sectionBars:s.sectionBars,
+    notes:s.notes
+  };
+  state.mp.song = song;
+  mpSend({type:'set_song', song});
+  $('mpSongStatus').textContent = 'Отправлено сопернику: '+song.songName;
+});
+
+$('mpCreateBtn').addEventListener('click', ()=>{
+  if(!state.mp.connected){ alert('Сначала подключись к серверу.'); return; }
+  state.mp.nickname = ($('mpNickname').value||'Player').trim().slice(0,24) || 'Player';
+  mpSend({type:'create_lobby', isPrivate: $('mpLobbyType').value==='private', name: state.mp.nickname, device: state.mp.myDevice});
+});
+$('mpJoinBtn').addEventListener('click', ()=>{
+  if(!state.mp.connected){ alert('Сначала подключись к серверу.'); return; }
+  const code = $('mpJoinCode').value.trim().toUpperCase();
+  if(!code) return;
+  state.mp.nickname = ($('mpNickname').value||'Player').trim().slice(0,24) || 'Player';
+  mpSend({type:'join_lobby', code, name: state.mp.nickname, device: state.mp.myDevice});
+});
+$('mpRefreshPublicBtn').addEventListener('click', ()=> mpSend({type:'list_public'}));
+$('mpCopyCodeBtn').addEventListener('click', ()=>{
+  if(state.mp.code && navigator.clipboard) navigator.clipboard.writeText(state.mp.code).catch(()=>{});
+});
+
+function handleMpMessage(msg){
+  switch(msg.type){
+    case 'lobby_created':
+    case 'lobby_joined':
+      state.mp.code = msg.code; state.mp.isHost = msg.isHost; state.mp.youId = msg.youId;
+      state.mp.players = msg.players; state.mp.song = null; state.mp.roles = null;
+      state.mp.myRole = null; state.mp.oppRole = null; mpReady = false;
+      $('mpReadyBtn').textContent = 'Готов';
+      $('mpActionsCard').style.display = 'none';
+      $('mpSongCard').style.display = state.mp.isHost ? '' : '';
+      $('mpSongSelect').disabled = !state.mp.isHost;
+      $('mpLobbyCard').style.display = '';
+      $('mpLobbyCodeLabel').textContent = state.mp.code;
+      refreshMpRoleSelects();
+      renderMpLobby();
+      break;
+    case 'player_joined':
+      state.mp.players.push(msg.player);
+      refreshMpRoleSelects();
+      renderMpLobby();
+      break;
+    case 'player_left':
+      state.mp.players = state.mp.players.filter(p=>p.id!==msg.id);
+      if(state.mp.active && state.play) state.play.oppLeft = true;
+      refreshMpRoleSelects();
+      renderMpLobby();
+      break;
+    case 'player_ready':
+      { const p = state.mp.players.find(pl=>pl.id===msg.id); if(p) p.ready = msg.ready; renderMpLobby(); }
+      break;
+    case 'song_sync':
+      state.mp.song = msg.song;
+      $('mpSongStatus').textContent = 'Песня хоста: '+msg.song.songName+' ('+msg.song.bpm+' BPM, '+msg.song.notes.length+' нот)';
+      renderMpLobby();
+      break;
+    case 'roles_sync':
+      state.mp.roles = msg.roles;
+      applyMpRoles();
+      break;
+    case 'public_list':
+      renderMpPublicList(msg.lobbies);
+      break;
+    case 'game_start':
+      startMpCountdown(msg.startAt);
+      break;
+    case 'opponent_hit':
+      state.mp.oppStats = {score:msg.score, health:msg.health, combo:msg.combo};
+      break;
+    case 'opponent_note_event':
+      applyRemoteNoteEvent(msg.idx, msg.kind);
+      break;
+    case 'opponent_finish':
+      state.mp.oppFinished = {score:msg.score, maxCombo:msg.maxCombo, accuracy:msg.accuracy};
+      if(state.mp.myFinished) renderMpSummary();
+      break;
+    case 'pong':
+      state.mp.myPing = Date.now() - msg.t;
+      mpSend({type:'ping_report', ms: state.mp.myPing});
+      renderMpLobby();
+      break;
+    case 'opponent_ping_report':
+      state.mp.oppPing = msg.ms;
+      renderMpLobby();
+      break;
+    case 'error':
+      alert(msg.message);
+      break;
+  }
+}
+
+/* ---- roles: which of the two connected players controls which lane set ---- */
+function refreshMpRoleSelects(){
+  if(!state.mp.isHost) return;
+  const has2 = state.mp.players.length===2;
+  $('mpRolesCard').style.display = has2 ? '' : 'none';
+  if(!has2) return;
+  ['mpRolePlayer','mpRoleOpponent'].forEach(id=>{
+    const sel = $(id); const prev = sel.value;
+    sel.innerHTML = '';
+    state.mp.players.forEach(p=>{
+      const o = document.createElement('option'); o.value = p.id; o.textContent = p.name; sel.appendChild(o);
+    });
+    if(state.mp.players.some(p=>String(p.id)===prev)) sel.value = prev;
+  });
+  if(!state.mp.roles){
+    // sensible default: host plays "player", guest plays "opponent" — host can still change it
+    $('mpRolePlayer').value = state.mp.youId;
+    const other = state.mp.players.find(p=>p.id!==state.mp.youId);
+    if(other) $('mpRoleOpponent').value = other.id;
+    sendMpRoles();
+  }
+}
+function sendMpRoles(){
+  if(!state.mp.isHost) return;
+  const roles = { playerId:+$('mpRolePlayer').value, opponentId:+$('mpRoleOpponent').value };
+  if(roles.playerId === roles.opponentId) return; // same person picked twice — ignore
+  state.mp.roles = roles;
+  mpSend({type:'set_roles', roles});
+  applyMpRoles();
+}
+$('mpRolePlayer').addEventListener('change', sendMpRoles);
+$('mpRoleOpponent').addEventListener('change', sendMpRoles);
+function applyMpRoles(){
+  const r = state.mp.roles;
+  if(!r){ state.mp.myRole = null; state.mp.oppRole = null; renderMpLobby(); return; }
+  state.mp.myRole = r.playerId===state.mp.youId ? 'player' : (r.opponentId===state.mp.youId ? 'opponent' : null);
+  state.mp.oppRole = state.mp.myRole==='player' ? 'opponent' : (state.mp.myRole==='opponent' ? 'player' : null);
+  renderMpLobby();
+}
+function roleLabel(playerId){
+  const r = state.mp.roles;
+  if(!r) return '';
+  if(r.playerId===playerId) return ' · Игрок';
+  if(r.opponentId===playerId) return ' · Оппонент';
+  return '';
+}
+
+/* ---- receiving the remote side's actual note presses, keyed by note index (both
+   clients build sess.notes from the identical synced song, so indices line up) ---- */
+function applyRemoteNoteEvent(idx, kind){
+  if(!state.play) return;
+  const n = state.play.notes[idx];
+  if(!n) return;
+  if(kind==='hit'){ n.hit = true; n._holding = false; }
+  else if(kind==='miss'){ n.missed = true; n._holding = false; }
+  else if(kind==='holdstart'){ n._holding = true; }
+  if(kind==='hit' || kind==='holdstart'){
+    const mine = myControlledLanes();
+    if(!mine.includes(n.lane)){
+      // this note belongs to the remote player's side — animate the character standing in for them
+      if(mine.includes(0)) triggerOpponentAnim(LANE_ANIM[n.lane%4], 260); // I'm "player", they're "opponent"
+      else triggerAnim(LANE_ANIM[n.lane%4], 220); // I'm "opponent", they're the "player"
+    }
+  }
+}
+
+function renderMpLobby(){
+  const wrap = $('mpPlayersList');
+  wrap.innerHTML = '';
+  state.mp.players.forEach(p=>{
+    const isMe = p.id===state.mp.youId;
+    const ping = isMe ? state.mp.myPing : state.mp.oppPing;
+    const pingStr = ping!=null ? ping+' ms' : '…';
+    const row = document.createElement('div');
+    row.className = 'kb-row';
+    row.innerHTML = `<span class="kb-name">${deviceIcon(p.device||'desktop')} ${escapeHtml(p.name)}${isMe?' (ты)':''}${roleLabel(p.id)} `+
+      `<span class="hint-text" style="display:inline;">· ${pingStr}</span></span>`+
+      `<span class="tag${p.ready?' p1':''}">${p.ready?'Готов':'Не готов'}</span>`;
+    wrap.appendChild(row);
+  });
+  $('mpLobbyHint').textContent = state.mp.players.length<2
+    ? 'Ждём второго игрока… код: '+state.mp.code
+    : (state.mp.song ? 'Оба игрока могут нажать «Готов».' : (state.mp.isHost ? 'Выбери песню выше (карточка Song), чтобы начать.' : 'Ждём, пока хост выберет песню.'));
+}
+function renderMpPublicList(list){
+  const wrap = $('mpPublicList');
+  wrap.innerHTML = '';
+  if(!list.length){ wrap.innerHTML = '<div class="hint-text">Публичных лобби пока нет.</div>'; return; }
+  list.forEach(l=>{
+    const chip = document.createElement('div');
+    chip.className = 'chip';
+    chip.innerHTML = `<span>${escapeHtml(l.hostName)} · ${l.code}</span>`;
+    const btn = document.createElement('button');
+    btn.textContent = '→';
+    btn.addEventListener('click', ()=>{ $('mpJoinCode').value = l.code; $('mpJoinBtn').click(); });
+    chip.appendChild(btn);
+    wrap.appendChild(chip);
+  });
+}
+$('mpReadyBtn').addEventListener('click', ()=>{
+  if(!mpReady && !state.mp.instBuf){ alert('Сначала загрузи Inst.ogg для матча (карточка "Аудио для матча").'); return; }
+  if(!mpReady && !state.mp.song){ alert('Ещё нет песни — её должен выбрать хост.'); return; }
+  mpReady = !mpReady;
+  mpSend({type: mpReady?'ready':'unready'});
+  $('mpReadyBtn').textContent = mpReady ? '✓ Готов (отменить)' : 'Готов';
+});
+$('mpLeaveBtn').addEventListener('click', ()=>{
+  mpSend({type:'leave_lobby'});
+  state.mp.code = null; state.mp.players = []; state.mp.song = null; mpReady = false;
+  $('mpReadyBtn').textContent = 'Готов';
+  $('mpLobbyCard').style.display = 'none';
+  $('mpActionsCard').style.display = '';
+});
+
+function startMpCountdown(startAt){
+  showScreen('playView');
+  $('playSummary').classList.remove('show');
+  resizePlayCanvas();
+  const cd = $('mpCountdown');
+  cd.classList.add('show');
+  (function tick(){
+    const remain = startAt - Date.now();
+    const n = Math.ceil(remain/1000);
+    $('mpCountdownNum').textContent = n>0 ? n : 'GO!';
+    if(remain<=0){ cd.classList.remove('show'); beginMpMatch(); return; }
+    requestAnimationFrame(tick);
+  })();
+}
+function beginMpMatch(){
+  state.mp.active = true;
+  state.mp.oppStats = {score:0, health:50, combo:0};
+  state.mp.oppFinished = null; state.mp.myFinished = null;
+  const s = state.mp.song;
+  // "mpMyChar" is always MY OWN pick, regardless of role — place it on whichever side
+  // (player/opponent) my assigned role actually controls, so it renders where I'm playing
+  const iAmPlayer = state.mp.myRole !== 'opponent'; // default to player side if no role assigned yet
+  const songEntry = {
+    name: s.songName, bpm:s.bpm, speed:s.speed, beatsPerBar:s.beatsPerBar,
+    notes: s.notes, instBuf: state.mp.instBuf, voicesBuf: state.mp.voicesBuf,
+    playerCharId: iAmPlayer ? $('mpMyChar').value : $('mpOppChar').value,
+    opponentCharId: iAmPlayer ? $('mpOppChar').value : $('mpMyChar').value
+  };
+  openPlayView(songEntry);
+  $('playSongTitle').textContent = s.songName + ' (Мультиплеер · ты — '+(iAmPlayer?'игрок':'оппонент')+')';
+  startPlaySession();
+}
+function renderMpSummary(){
+  const my = state.mp.myFinished, opp = state.mp.oppFinished;
+  $('summaryTitle').textContent = 'Результат матча';
+  let html = `Ты: <b>${my.score}</b> очков · точность ${my.accuracy}% · комбо ${my.maxCombo}<br>`;
+  if(opp){
+    html += `Соперник: <b>${opp.score}</b> очков · точность ${opp.accuracy}% · комбо ${opp.maxCombo}<br>`;
+    html += my.score>opp.score ? '<br><b style="color:#43e6c4;">Ты победил!</b>'
+      : my.score<opp.score ? '<br><b style="color:#ff5f96;">Соперник победил.</b>'
+      : '<br><b>Ничья!</b>';
+  } else {
+    html += 'Ждём результат соперника…';
+  }
+  $('summaryStats').innerHTML = html;
+  $('playSummary').classList.add('show');
+}
+
+
+let pendingSongJson = null, pendingInstFile = null, pendingVoicesFile = null;
+$('freeplayAddBtn').addEventListener('click', ()=>{
+  pendingSongJson = null; pendingInstFile = null; pendingVoicesFile = null;
+  pickFileUI('songJsonPick', 'файл не выбран', false);
+  pickFileUI('songInstPick', 'файл не выбран', false);
+  pickFileUI('songVoicesPick', 'файл не выбран', false);
+  $('addSongError').textContent = '';
+  $('addSongModal').classList.add('open');
+});
+$('addSongCancel').addEventListener('click', ()=> $('addSongModal').classList.remove('open'));
+$('songJsonFile').addEventListener('change', async e=>{
+  const f = e.target.files[0]; if(!f) return;
+  try{ pendingSongJson = JSON.parse(await f.text()); pendingSongJson.__filename = f.name; pickFileUI('songJsonPick', f.name, true); }
+  catch(err){ $('addSongError').textContent = 'Некорректный JSON: '+err.message; }
+});
+$('songInstFile').addEventListener('change', e=>{
+  const f = e.target.files[0]; if(!f) return;
+  pendingInstFile = f; pickFileUI('songInstPick', f.name, true);
+});
+$('songVoicesFile').addEventListener('change', e=>{
+  const f = e.target.files[0]; if(!f) return;
+  pendingVoicesFile = f; pickFileUI('songVoicesPick', f.name, true);
+});
+$('addSongConfirm').addEventListener('click', async ()=>{
+  $('addSongError').textContent = '';
+  if(!pendingSongJson){ $('addSongError').textContent = 'Выбери Song JSON.'; return; }
+  if(!pendingInstFile){ $('addSongError').textContent = 'Inst.ogg обязателен.'; return; }
+  $('addSongConfirm').disabled = true;
+  $('addSongConfirm').textContent = 'Добавляю…';
+  try{
+    const ctx = getAudioCtx();
+    const instBuf = await ctx.decodeAudioData((await pendingInstFile.arrayBuffer()).slice(0));
+    let voicesBuf = null;
+    if(pendingVoicesFile){
+      try{ voicesBuf = await ctx.decodeAudioData((await pendingVoicesFile.arrayBuffer()).slice(0)); }
+      catch(err){ console.warn('voices decode failed', err); }
+    }
+    const d = pendingSongJson;
+    state.songLibrary.push({
+      id:'song'+Date.now(),
+      name: d.songName || (d.__filename||'song').replace(/\.json$/i,''),
+      bpm: d.bpm||100, speed: d.speed||1, beatsPerBar: d.beatsPerBar||4, sectionBars: d.sectionBars||4,
+      playerCharId: d.playerChar||'', opponentCharId: d.opponentChar||'',
+      notes: (d.notes||[]).map(n=>({t:n.t, lane:n.lane, sustain:n.sustain||0})),
+      instBuf, voicesBuf, instName: pendingInstFile.name, voicesName: pendingVoicesFile?pendingVoicesFile.name:null
+    });
+    $('addSongModal').classList.remove('open');
+    renderFreeplayList();
+    refreshMpSongSelect();
+  }catch(err){
+    $('addSongError').textContent = 'Не удалось декодировать Inst.ogg: '+err.message;
+  }finally{
+    $('addSongConfirm').disabled = false;
+    $('addSongConfirm').textContent = '+ Добавить';
+  }
+});
+function renderFreeplayList(){
+  const wrap = $('freeplayList');
+  wrap.innerHTML = '';
+  if(!state.songLibrary.length){
+    wrap.innerHTML = '<div class="hint-text" style="padding:30px 10px;text-align:center;">Пока нет песен. Нажми "+ Добавить песню" — понадобится Song JSON из Charting и Inst.ogg.</div>';
+    return;
+  }
+  state.songLibrary.forEach(s=>{
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.style.cssText = 'display:flex;align-items:center;gap:12px;';
+    card.innerHTML = `<div style="flex:1;min-width:0;">
+        <div style="font-weight:700;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(s.name)}</div>
+        <div class="hint-text">${s.bpm} BPM · ${s.notes.length} нот${s.voicesBuf?' · +voices':''}</div>
+      </div>`;
+    const playBtn = document.createElement('button');
+    playBtn.className = 'btn btn-primary'; playBtn.textContent = '▶ Играть';
+    playBtn.addEventListener('click', ()=> openPlayView(s));
+    const delBtn = document.createElement('button');
+    delBtn.className = 'btn btn-danger'; delBtn.textContent = '✕';
+    delBtn.addEventListener('click', ()=>{ state.songLibrary = state.songLibrary.filter(x=>x!==s); renderFreeplayList(); });
+    card.appendChild(playBtn); card.appendChild(delBtn);
+    wrap.appendChild(card);
+  });
+}
+
+/* ============================================================
+   EDITOR OPEN/CLOSE + TABS + KEY "7"
+   ============================================================ */
+function toggleEditor(){
+  state.editorOpen ? closeEditor() : openEditor();
+}
+function openEditor(){
+  state.editorOpen = true;
+  $('editor').classList.add('open');
+  $('fabClose').classList.add('show');
+}
+function closeEditor(){
+  state.editorOpen = false;
+  $('editor').classList.remove('open');
+  $('fabClose').classList.remove('show');
+  stopPreview();
+  stopChartPlayback();
+}
+function setTab(tab){
+  state.activeTab = tab;
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.toggle('active', b.dataset.tab===tab));
+  // explicit show/hide as well as the CSS class, so exactly one panel is ever visible
+  document.querySelectorAll('.panel').forEach(p=>{
+    const isActive = p.id === 'panel-'+tab;
+    p.classList.toggle('active', isActive);
+    p.style.display = isActive ? 'flex' : 'none';
+    if(isActive) p.scrollTop = 0; // never open a tab mid-scroll from a previous view
+  });
+  if(tab==='charting') requestAnimationFrame(renderTimeline);
+}
+document.querySelectorAll('.tab-btn').forEach(b=>b.addEventListener('click',()=>setTab(b.dataset.tab)));
+$('closeBtn').addEventListener('click', closeEditor);
+$('fabClose').addEventListener('click', closeEditor);
+
+document.addEventListener('keydown', (e)=>{
+  const typing = ['INPUT','SELECT','TEXTAREA'].includes(document.activeElement.tagName);
+  if(e.key==='7' && !typing && !state.play){ e.preventDefault(); toggleEditor(); return; }
+  if(!state.editorOpen) return;
+
+  if(e.code==='Space' && !typing){ e.preventDefault(); toggleChartPlayback(); return; }
+  // click sound during chart playback is automatic (fires when the playhead crosses a note —
+  // see chartTick), not tied to keypresses, so nothing else happens here.
+});
+
+/* ============================================================
+   SETTINGS MODAL
+   ============================================================ */
+$('settingsBtn').addEventListener('click', ()=> $('settingsModal').classList.add('open'));
+$('closeSettings').addEventListener('click', ()=> $('settingsModal').classList.remove('open'));
+function syncClickToggle(fromId){
+  const val = $(fromId).checked;
+  state.settings.clickSound = val;
+  $('clickSoundToggle').checked = val;
+  $('clickSoundToggle2').checked = val;
+  $('clickSoundToggle3').checked = val;
+}
+$('clickSoundToggle').addEventListener('change', ()=>syncClickToggle('clickSoundToggle'));
+$('clickSoundToggle2').addEventListener('change', ()=>syncClickToggle('clickSoundToggle2'));
+$('clickSoundToggle3').addEventListener('change', ()=>syncClickToggle('clickSoundToggle3'));
+
+/* ============================================================
+   WEB AUDIO — synthesized click / hit / miss sounds (no external files)
+   ============================================================ */
+let sharedAudioCtx = null;
+function getAudioCtx(){
+  if(!sharedAudioCtx) sharedAudioCtx = new (window.AudioContext||window.webkitAudioContext)();
+  return sharedAudioCtx;
+}
+function beep(freq, dur, type, gain){
+  const ctx = getAudioCtx();
+  if(ctx.state === 'suspended') ctx.resume(); // defensive: never silently swallow a sound because the context stalled
+  const o = ctx.createOscillator();
+  const g = ctx.createGain();
+  o.type = type||'square';
+  o.frequency.value = freq;
+  g.gain.setValueAtTime(gain||0.16, ctx.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime+dur);
+  o.connect(g).connect(ctx.destination);
+  o.start();
+  o.stop(ctx.currentTime+dur+0.02);
+}
+function playClickSound(){
+  if(!state.settings.clickSound) return;
+  beep(1100, 0.045, 'square', 0.16);
+}
+function playMissSound(){ beep(160, 0.12, 'sawtooth', 0.12); }
+
+/* ============================================================
+   DATA TAB
+   ============================================================ */
+$('songName').addEventListener('input', e=>{ state.song.name = e.target.value; });
+$('songBpm').addEventListener('input', e=>{ state.song.bpm = Math.max(1, +e.target.value||100); requestAnimationFrame(renderTimeline); });
+$('songSpeed').addEventListener('input', e=> state.song.speed = +e.target.value||1);
+$('songBeats').addEventListener('input', e=> state.song.beatsPerBar = Math.max(1, +e.target.value||4));
+$('dataPlayerChar').addEventListener('change', e=> state.song.playerCharId = e.target.value);
+$('dataOpponentChar').addEventListener('change', e=> state.song.opponentCharId = e.target.value);
+function refreshDataCharSelects(){
+  ['dataPlayerChar','dataOpponentChar'].forEach(id=>{
+    const sel = $(id);
+    const prev = sel.value;
+    sel.innerHTML = '<option value="">не выбран</option>';
+    state.library.forEach(c=>{
+      const o = document.createElement('option');
+      o.value = c.id; o.textContent = c.label;
+      sel.appendChild(o);
+    });
+    sel.value = state.library.some(c=>c.id===prev) ? prev : '';
+  });
+  state.song.playerCharId = $('dataPlayerChar').value;
+  state.song.opponentCharId = $('dataOpponentChar').value;
+}
+
+function pickFileUI(pickerId, label, filled){
+  const el = $(pickerId);
+  el.querySelector('.name').textContent = label;
+  el.classList.toggle('filled', filled);
+}
+
+$('instFile').addEventListener('change', async (e)=>{
+  const f = e.target.files[0]; if(!f) return;
+  state.song.instFile = f;
+  state.song.instURL = URL.createObjectURL(f);
+  pickFileUI('instPick', f.name, true);
+  const dur = await getAudioDuration(state.song.instURL);
+  state.song.instDuration = dur*1000;
+  $('instInfo').textContent = `Длительность: ${fmtTime(dur*1000)}`;
+  decodeForChart('inst', f);
+  requestAnimationFrame(renderTimeline);
+});
+$('voicesFile').addEventListener('change', async (e)=>{
+  const f = e.target.files[0]; if(!f) return;
+  state.song.voicesFile = f;
+  state.song.voicesURL = URL.createObjectURL(f);
+  pickFileUI('voicesPick', f.name, true);
+  const dur = await getAudioDuration(state.song.voicesURL);
+  state.song.voicesDuration = dur*1000;
+  $('voicesInfo').textContent = `Длительность: ${fmtTime(dur*1000)}`;
+  decodeForChart('voices', f);
+});
+function getAudioDuration(url){
+  return new Promise(res=>{
+    const a = new Audio();
+    a.src = url;
+    a.addEventListener('loadedmetadata', ()=>res(a.duration||0));
+    a.addEventListener('error', ()=>res(0));
+  });
+}
+async function decodeForChart(which, file){
+  try{
+    const ctx = getAudioCtx();
+    const buf = await file.arrayBuffer();
+    const audioBuf = await ctx.decodeAudioData(buf.slice(0));
+    if(which==='inst') state.chart.instBuf = audioBuf; else state.chart.voicesBuf = audioBuf;
+  }catch(err){ console.warn('decode failed', err); }
+}
+
+/* ============================================================
+   CHARACTERS TAB — XML atlas parsing (Sparrow v1 / XML v2)
+   ============================================================ */
+$('charId').addEventListener('input', e=> state.char.id = e.target.value);
+$('charDisplay').addEventListener('input', e=> state.char.display = e.target.value);
+$('charScale').addEventListener('input', e=> state.char.scale = +e.target.value||1);
+$('charFlip').addEventListener('change', e=> state.char.flipX = e.target.value==='1');
+
+$('xmlFile').addEventListener('change', async (e)=>{
+  const f = e.target.files[0]; if(!f) return;
+  state.char.xmlFile = f;
+  pickFileUI('xmlPick', f.name, true);
+  const text = await f.text();
+  parseAtlasXML(text);
+});
+$('imgFile').addEventListener('change', (e)=>{
+  const f = e.target.files[0]; if(!f) return;
+  state.char.imgFile = f;
+  if(state.char.imgURL) URL.revokeObjectURL(state.char.imgURL);
+  state.char.imgURL = URL.createObjectURL(f);
+  pickFileUI('imgPick', f.name, true);
+  const img = new Image();
+  img.onload = ()=>{ state.char.imgEl = img; renderFrameGroups(); drawPreview(); };
+  img.src = state.char.imgURL;
+});
+$('iconFile').addEventListener('change', (e)=>{
+  const f = e.target.files[0]; if(!f) return;
+  state.char.iconFile = f;
+  if(state.char.iconURL) URL.revokeObjectURL(state.char.iconURL);
+  state.char.iconURL = URL.createObjectURL(f);
+  pickFileUI('iconPick', f.name, true);
+  const img = new Image();
+  img.onload = ()=>{
+    state.char.iconEl = img;
+    if(img.width < 200 || img.height < 150){
+      $('iconInfo').textContent = `⚠ ${img.width}×${img.height} — меньше рекомендуемого минимума 200×150, может выглядеть плохо.`;
+    } else {
+      $('iconInfo').textContent = `Загружено: ${img.width}×${img.height}. Левая половина — «жив», правая — «проигрывает».`;
+    }
+  };
+  img.src = state.char.iconURL;
+});
+$('iconFlipX').addEventListener('change', e=> state.char.iconFlipX = e.target.checked);
+$('xmlFormat').addEventListener('change', ()=>{
+  if(state.char.xmlFile) state.char.xmlFile.text().then(parseAtlasXML);
+});
+
+function detectFormat(doc){
+  if(doc.getElementsByTagName('SubTexture').length) return 'sparrow';
+  if(doc.getElementsByTagName('sprite').length) return 'xmlv2';
+  return null;
+}
+function parseSparrowV1(doc){
+  return Array.from(doc.getElementsByTagName('SubTexture')).map(el=>{
+    const w = +el.getAttribute('width')||0, h = +el.getAttribute('height')||0;
+    return {
+      name: el.getAttribute('name')||'',
+      x:+el.getAttribute('x')||0, y:+el.getAttribute('y')||0, w, h,
+      frameX: el.hasAttribute('frameX') ? +el.getAttribute('frameX') : 0,
+      frameY: el.hasAttribute('frameY') ? +el.getAttribute('frameY') : 0,
+      frameW: el.hasAttribute('frameWidth') ? +el.getAttribute('frameWidth') : w,
+      frameH: el.hasAttribute('frameHeight') ? +el.getAttribute('frameHeight') : h,
+      rotated: el.getAttribute('rotated')==='true'
+    };
+  });
+}
+// "XML v2" = TexturePacker generic XML export (<sprite n= x= y= w= h= oX= oY= oW= oH= r=/>)
+function parseXmlV2(doc){
+  return Array.from(doc.getElementsByTagName('sprite')).map(el=>{
+    const w = +el.getAttribute('w')||0, h = +el.getAttribute('h')||0;
+    return {
+      name: el.getAttribute('n')||'',
+      x:+el.getAttribute('x')||0, y:+el.getAttribute('y')||0, w, h,
+      frameX: el.hasAttribute('oX') ? +el.getAttribute('oX') : 0,
+      frameY: el.hasAttribute('oY') ? +el.getAttribute('oY') : 0,
+      frameW: el.hasAttribute('oW') ? +el.getAttribute('oW') : w,
+      frameH: el.hasAttribute('oH') ? +el.getAttribute('oH') : h,
+      rotated: (el.getAttribute('r')||'n')==='y'
+    };
+  });
+}
+function parseAtlasXML(text){
+  let doc;
+  try{ doc = new DOMParser().parseFromString(text, 'text/xml'); }
+  catch(err){ $('xmlInfo').textContent = 'Ошибка парсинга XML.'; return; }
+  if(doc.getElementsByTagName('parsererror').length){
+    $('xmlInfo').textContent = 'Ошибка парсинга XML — файл повреждён или это не XML.';
+    return;
+  }
+  const manual = $('xmlFormat').value;
+  const fmt = manual==='auto' ? detectFormat(doc) : manual;
+  if(!fmt){
+    $('xmlInfo').textContent = 'Не удалось определить формат (ожидались <SubTexture> или <sprite>).';
+    return;
+  }
+  state.char.format = fmt;
+  state.char.frames = fmt==='sparrow' ? parseSparrowV1(doc) : parseXmlV2(doc);
+  state.char.groups = groupFrames(state.char.frames);
+  const gKeys = Object.keys(state.char.groups);
+  state.char.activeGroup = gKeys[0]||null;
+
+  // if animations were already defined (e.g. restored from a loaded character.json),
+  // refresh their frame counts against the freshly parsed groups instead of wiping them
+  let relinked = 0;
+  state.char.animations.forEach(a=>{
+    if(state.char.groups[a.prefix]){ a.frameCount = state.char.groups[a.prefix].length; relinked++; }
+  });
+  if(relinked) renderAnimList();
+
+  $('xmlInfo').textContent = `Формат: ${fmt==='sparrow'?'XML Sparrow v1':'XML v2 (generic)'} · `+
+    `${state.char.frames.length} фреймов · ${gKeys.length} групп анимаций`+
+    (relinked ? ` · ${relinked} анимаций подхвачено из JSON` : '');
+  renderFrameGroups();
+  drawPreview();
+}
+function groupFrames(frames){
+  const groups = {};
+  frames.forEach((f,i)=>{
+    const m = f.name.match(/^(.*?)(\d+)?$/);
+    const prefix = (m[1]||f.name).trim() || f.name;
+    const num = m[2]!==undefined ? parseInt(m[2],10) : i;
+    if(!groups[prefix]) groups[prefix]=[];
+    groups[prefix].push(Object.assign({}, f, {_num:num, _order:i}));
+  });
+  Object.values(groups).forEach(g=> g.sort((a,b)=> a._num-b._num || a._order-b._order));
+  return groups;
+}
+function renderFrameGroups(){
+  const wrap = $('frameGroups');
+  wrap.innerHTML = '';
+  const keys = Object.keys(state.char.groups);
+  $('groupCount').textContent = keys.length ? `(${keys.length})` : '';
+  keys.forEach(k=>{
+    const div = document.createElement('div');
+    div.className = 'frame-group'+(k===state.char.activeGroup?' active':'');
+    div.innerHTML = `<span class="gname">${escapeHtml(k)}</span><span class="gcount">${state.char.groups[k].length}f</span>`;
+    div.addEventListener('click', ()=>{
+      state.char.activeGroup = k;
+      renderFrameGroups();
+      previewGroup(k);
+      $('selectedGroupLabel').textContent = k;
+    });
+    wrap.appendChild(div);
+  });
+}
+
+/* ---- sprite preview canvas ---- */
+const pvCanvas = $('previewCanvas');
+const pvCtx = pvCanvas.getContext('2d');
+let previewFrames = null;
+let previewRaf = null;
+
+function previewGroup(key){
+  previewFrames = state.char.groups[key];
+  state.preview.frameIndex = 0;
+  $('previewLabel').textContent = `${key} — ${previewFrames.length} фреймов`;
+  drawPreview();
+}
+// generic frame-drawing routine, reused by character preview AND gameplay
+function drawAtlasFrame(ctx, imgEl, f, cx, cy, boxW, boxH, scaleMul, flipX){
+  const scale = Math.min(boxW/f.frameW, boxH/f.frameH) * (scaleMul||1);
+  const offX = cx - (f.frameW*scale)/2;
+  const offY = cy - (f.frameH*scale)/2;
+  ctx.save();
+  if(flipX){ ctx.translate(cx*2,0); ctx.scale(-1,1); }
+  if(f.rotated){
+    ctx.save();
+    ctx.translate(offX + f.frameX*scale, offY + f.frameY*scale);
+    ctx.rotate(Math.PI/2);
+    ctx.drawImage(imgEl, f.x, f.y, f.w, f.h, 0, -f.w*scale, f.h*scale, f.w*scale);
+    ctx.restore();
+  } else {
+    ctx.drawImage(imgEl, f.x, f.y, f.w, f.h, offX + f.frameX*scale, offY + f.frameY*scale, f.w*scale, f.h*scale);
+  }
+  ctx.restore();
+  return {offX, offY, scale};
+}
+function drawPreview(){
+  pvCtx.clearRect(0,0,pvCanvas.width,pvCanvas.height);
+  if(!state.char.imgEl) return;
+  const list = previewFrames || (state.char.activeGroup ? state.char.groups[state.char.activeGroup] : null);
+  if(!list || !list.length) return;
+  const f = list[state.preview.frameIndex % list.length];
+  const {offX,offY,scale} = drawAtlasFrame(pvCtx, state.char.imgEl, f, pvCanvas.width/2, pvCanvas.height/2,
+    pvCanvas.width*0.9, pvCanvas.height*0.9, state.char.scale||1, state.char.flipX);
+  if($('showBounds').checked){
+    pvCtx.strokeStyle = '#ffcf5c';
+    pvCtx.strokeRect(offX, offY, f.frameW*scale, f.frameH*scale);
+  }
+}
+$('showBounds').addEventListener('change', drawPreview);
+
+$('playAnimBtn').addEventListener('click', ()=>{
+  state.preview.playing = !state.preview.playing;
+  $('playAnimBtn').textContent = state.preview.playing ? '⏸ Pause' : '▶ Play';
+  if(state.preview.playing){ state.preview.lastTs = performance.now(); previewRaf = requestAnimationFrame(previewTick); }
+});
+function stopPreview(){
+  state.preview.playing = false;
+  $('playAnimBtn').textContent = '▶ Play';
+  if(previewRaf) cancelAnimationFrame(previewRaf);
+}
+function previewTick(ts){
+  if(!state.preview.playing) return;
+  const list = previewFrames || (state.char.activeGroup ? state.char.groups[state.char.activeGroup] : null);
+  const fps = +$('animFps').value || 24;
+  const interval = 1000/Math.max(1,fps);
+  if(ts - state.preview.lastTs >= interval){
+    state.preview.lastTs = ts;
+    if(list && list.length) state.preview.frameIndex = (state.preview.frameIndex+1) % list.length;
+    drawPreview();
+  }
+  previewRaf = requestAnimationFrame(previewTick);
+}
+
+/* ---- animations list ---- */
+$('animName').addEventListener('change', ()=>{
+  $('animNameCustom').style.display = $('animName').value==='__custom' ? 'block' : 'none';
+});
+$('addAnimBtn').addEventListener('click', ()=>{
+  const key = state.char.activeGroup;
+  if(!key){ alert('Сначала кликни по группе фреймов выше — она подсветится и попадёт в "Выбранная группа".'); return; }
+  const name = $('animName').value==='__custom' ? $('animNameCustom').value.trim() : $('animName').value;
+  if(!name){ alert('Введите имя анимации.'); return; }
+  const entry = {
+    anim:name, prefix:key,
+    fps:+$('animFps').value||24, loop: $('animLoop').value==='1',
+    frameCount: state.char.groups[key].length
+  };
+  // re-assigning an already-used slot (e.g. re-picking "idle") replaces it instead of duplicating
+  const existingIdx = state.char.animations.findIndex(a=>a.anim===name);
+  if(existingIdx>=0) state.char.animations[existingIdx] = entry;
+  else state.char.animations.push(entry);
+  $('animNameCustom').value = '';
+  renderAnimList();
+});
+function renderAnimList(){
+  const wrap = $('animList');
+  wrap.innerHTML = '';
+  state.char.animations.forEach((a,i)=>{
+    const row = document.createElement('div');
+    row.className = 'anim-row';
+    row.innerHTML = `<span class="nm">${escapeHtml(a.anim)}</span>
+      <span class="meta">${a.prefix} · ${a.frameCount}f · ${a.fps}fps${a.loop?' · loop':''}</span>
+      <button data-i="${i}">✕</button>`;
+    row.querySelector('button').addEventListener('click', ()=>{
+      state.char.animations.splice(i,1); renderAnimList();
+    });
+    wrap.appendChild(row);
+  });
+}
+
+/* ---- new character / load character.json ---- */
+function resetCharacterEditor(){
+  state.char = {
+    id:'', display:'', scale:1, flipX:false,
+    xmlFile:null, imgFile:null, imgURL:null, imgEl:null,
+    iconFile:null, iconURL:null, iconEl:null, iconFlipX:false,
+    format:null, frames:[], groups:{}, activeGroup:null, animations:[]
+  };
+  $('charId').value = '';
+  $('charDisplay').value = '';
+  $('charScale').value = 1;
+  $('charFlip').value = '0';
+  $('xmlFile').value = '';
+  $('imgFile').value = '';
+  $('iconFile').value = '';
+  $('iconFlipX').checked = false;
+  pickFileUI('xmlPick', 'файл не выбран (.xml)', false);
+  pickFileUI('imgPick', 'файл не выбран (.png/.jpg/.webp)', false);
+  pickFileUI('iconPick', 'файл не выбран', false);
+  $('iconInfo').textContent = 'Один файл 300×150 (можно меньше, но не менее 200×150): левые 150×150 — обычное лицо, правые 150×150 — «проигрывает». Движок сам режет пополам и показывает на полоске HP нужной стороной.';
+  $('xmlFormat').value = 'auto';
+  $('xmlInfo').textContent = 'Загрузите XML и картинку — фреймы сгруппируются по имени автоматически.';
+  $('selectedGroupLabel').textContent = '— не выбрана —';
+  $('animFps').value = 24;
+  $('animLoop').value = '1';
+  $('animName').value = 'idle';
+  $('animNameCustom').value = '';
+  $('animNameCustom').style.display = 'none';
+  previewFrames = null;
+  state.preview.frameIndex = 0;
+  renderFrameGroups();
+  renderAnimList();
+  drawPreview();
+}
+$('newCharBtn').addEventListener('click', ()=>{
+  // no confirmation popup — just reset straight away with a fresh, guaranteed-unique id
+  resetCharacterEditor();
+  state.char.id = 'character'+(state.library.length+1);
+  $('charId').value = state.char.id;
+});
+$('loadCharBtn').addEventListener('click', ()=> $('charJsonFile').click());
+$('charJsonFile').addEventListener('change', async (e)=>{
+  const f = e.target.files[0]; if(!f) return;
+  let data;
+  try{ data = JSON.parse(await f.text()); }
+  catch(err){ alert('Некорректный JSON: '+err.message); e.target.value=''; return; }
+  resetCharacterEditor();
+  state.char.id = data.name || 'character';
+  state.char.display = data.displayName || '';
+  state.char.scale = data.scale||1;
+  state.char.flipX = !!data.flipX;
+  $('charId').value = state.char.id;
+  $('charDisplay').value = state.char.display;
+  $('charScale').value = state.char.scale;
+  $('charFlip').value = state.char.flipX ? '1' : '0';
+  if(data.atlasFormat) $('xmlFormat').value = data.atlasFormat;
+  state.char.animations = (data.animations||[]).map(a=>({
+    anim:a.anim, prefix:a.prefix, fps:a.fps||24, loop:!!a.loop, frameCount:0
+  }));
+  renderAnimList();
+  $('xmlInfo').textContent = `Персонаж загружен из JSON (${state.char.animations.length} анимаций). `+
+    `Теперь выбери те же XML (${data.xml||'?'}) и атлас (${data.image||'?'}), чтобы подтянуть фреймы.`;
+  e.target.value = '';
+});
+
+/* ---- save character.json ---- */
+$('saveCharBtn').addEventListener('click', ()=>{
+  if(!state.char.frames.length){ alert('Сначала загрузите XML + атлас.'); return; }
+  const json = {
+    name: state.char.id,
+    displayName: state.char.display,
+    image: state.char.imgFile ? state.char.imgFile.name : null,
+    xml: state.char.xmlFile ? state.char.xmlFile.name : null,
+    icon: state.char.iconFile ? state.char.iconFile.name : null,
+    atlasFormat: state.char.format,
+    scale: state.char.scale,
+    flipX: state.char.flipX,
+    animations: state.char.animations.map(a=>({
+      anim:a.anim, prefix:a.prefix, fps:a.fps, loop:a.loop
+    }))
+  };
+  downloadJSON(json, (state.char.id||'character')+'.json');
+});
+
+/* ---- character library (session-only, powers the Play view) ---- */
+$('addLibraryBtn').addEventListener('click', ()=>{
+  if(!state.char.imgEl || !state.char.frames.length){ alert('Сначала загрузите XML + атлас.'); return; }
+  if(!state.char.animations.length){ alert('Добавьте хотя бы одну анимацию (idle обязательно для превью).'); return; }
+  const id = state.char.id.trim();
+  if(!id){ alert('Укажи внутреннее имя (id) персонажа — по нему он ищется в библиотеке.'); return; }
+  const entry = {
+    id,
+    label: state.char.display || id,
+    imgEl: state.char.imgEl,
+    iconEl: state.char.iconEl || null,
+    iconFlipX: !!state.char.iconFlipX,
+    groups: state.char.groups,
+    animations: state.char.animations.slice(),
+    scale: state.char.scale, flipX: state.char.flipX
+  };
+  // no popup — same id just updates that entry in place (expected when re-adding after a tweak),
+  // any other id always adds a new, separate entry
+  const existingIdx = state.library.findIndex(c=>c.id===id);
+  if(existingIdx>=0) state.library[existingIdx] = entry; else state.library.push(entry);
+  renderLibrary();
+  const btn = $('addLibraryBtn');
+  btn.textContent = existingIdx>=0 ? '✓ Обновлено в библиотеке' : '✓ Добавлено в библиотеку';
+  setTimeout(()=>{ btn.textContent = '★ Добавить в библиотеку (для теста в игре)'; }, 1400);
+});
+function renderLibrary(){
+  const wrap = $('libraryChips');
+  wrap.innerHTML = '';
+  $('libCount').textContent = state.library.length ? `(${state.library.length})` : '';
+  state.library.forEach((c,i)=>{
+    const hasIdle = c.animations.some(a=>a.anim==='idle');
+    const chip = document.createElement('div');
+    chip.className = 'chip';
+    if(!hasIdle) chip.style.borderColor = 'var(--danger)';
+    chip.title = hasIdle ? '' : 'нет анимации "idle" — персонаж не появится в игре';
+    chip.innerHTML = `<span>${escapeHtml(c.label)}${hasIdle?'':' ⚠'}</span>`;
+    const rm = document.createElement('button');
+    rm.textContent = '✕';
+    rm.addEventListener('click', ()=>{ state.library.splice(i,1); renderLibrary(); });
+    chip.appendChild(rm);
+    wrap.appendChild(chip);
+  });
+  refreshPlayCharSelect();
+  refreshDataCharSelects();
+  refreshMpCharSelects();
+}
+function refreshPlayCharSelect(){
+  const sel1 = $('playCharSelectPlayer'), sel2 = $('playCharSelectOpp');
+  const cfg = [[sel1,'Игрок'], [sel2,'Оппонент']];
+  cfg.forEach(([sel,label])=>{
+    const prev = sel.value;
+    sel.innerHTML = `<option value="">${label}: нет</option>`;
+    state.library.forEach(c=>{
+      const o = document.createElement('option');
+      o.value = c.id; o.textContent = c.label;
+      sel.appendChild(o);
+    });
+    sel.value = state.library.some(c=>c.id===prev) ? prev : '';
+  });
+}
+
+/* ============================================================
+   CHARTING TAB — timeline grid + note editing + playback
+   ============================================================ */
+$('zoomRange').addEventListener('input', e=>{ state.chart.zoom = +e.target.value; renderTimeline(); });
+$('snapSelect').addEventListener('change', e=>{ state.chart.snap = +e.target.value; renderTimeline(); });
+$('sectionBarsInput').addEventListener('input', e=>{ state.song.sectionBars = Math.max(1, +e.target.value||4); renderTimeline(); });
+
+function stepMs(){
+  const stepsPerBeat = state.chart.snap/4;
+  return (60000/state.song.bpm) / stepsPerBeat;
+}
+function totalDurationMs(){
+  return Math.max(state.song.instDuration, state.song.voicesDuration, 30000);
+}
+function pxPerMs(){ return (state.chart.pxPerSecond*state.chart.zoom)/1000; }
+
+function renderTimeline(){
+  const timeline = $('timeline');
+  const durMs = totalDurationMs();
+  const heightPx = durMs*pxPerMs();
+  const fullWidth = 64*4*2+22;
+  timeline.style.height = heightPx+'px';
+  timeline.style.width = fullWidth+'px';
+  timeline.innerHTML = '';
+
+  const beatMs = 60000/state.song.bpm;
+  const barMs = beatMs*state.song.beatsPerBar;
+  const sectionBars = Math.max(1, state.song.sectionBars||4);
+  const sectionMs = barMs*sectionBars;
+
+  // section background bands, drawn first so everything else paints on top of them
+  let secIdx = 0;
+  for(let t=0; t<durMs; t+=sectionMs, secIdx++){
+    const bandH = Math.min(sectionMs, durMs-t) * pxPerMs();
+    const band = document.createElement('div');
+    band.className = 'section-band'+(secIdx%2 ? ' alt' : '');
+    band.style.top = (t*pxPerMs())+'px';
+    band.style.height = bandH+'px';
+    band.style.width = fullWidth+'px';
+    timeline.appendChild(band);
+    const slabel = document.createElement('div');
+    slabel.className = 'section-label';
+    slabel.style.top = (t*pxPerMs()+3)+'px';
+    slabel.textContent = 'Секция '+(secIdx+1);
+    timeline.appendChild(slabel);
+  }
+
+  const laneOrder = [0,1,2,3,'gap',4,5,6,7];
+  let xCursor = 0;
+  laneOrder.forEach(l=>{
+    if(l==='gap'){ xCursor += 22; return; }
+    const col = document.createElement('div');
+    col.className = 'lanecol';
+    col.style.left = xCursor+'px';
+    col.dataset.lane = l;
+    col.addEventListener('mousedown', (e)=> onLaneMouseDown(e, l, col));
+    timeline.appendChild(col);
+    xCursor += 64;
+  });
+
+  const sMs = stepMs();
+  let bar = 0;
+  for(let t=0; t<=durMs; t+=sMs){
+    const y = t*pxPerMs();
+    const isBar = Math.abs(t % barMs) < 0.001 || Math.abs((t%barMs)-barMs)<0.001;
+    const isBeat = Math.abs(t % beatMs) < 0.001 || Math.abs((t%beatMs)-beatMs)<0.001;
+    const isSection = isBar && (bar % sectionBars === 0);
+    const row = document.createElement('div');
+    row.className = 'grid-row'+(isSection?' section':(isBar?' bar':(isBeat?' beat':'')));
+    row.style.top = y+'px';
+    row.style.width = fullWidth+'px';
+    timeline.appendChild(row);
+    if(isBar){
+      const lbl = document.createElement('div');
+      lbl.className = 'bar-label';
+      lbl.style.top = (y-6)+'px';
+      lbl.textContent = bar;
+      timeline.appendChild(lbl);
+      bar++;
+    }
+  }
+
+  state.song.notes.forEach((n,i)=>{
+    const laneX = laneToX(n.lane);
+    const y = n.t*pxPerMs();
+    if(n.sustain>0){
+      const s = document.createElement('div');
+      s.className = 'sustain '+(n.lane<4?'p1':'p2');
+      s.style.top = y+'px';
+      s.style.left = (laneX+29)+'px';
+      s.style.height = (n.sustain*pxPerMs())+'px';
+      timeline.appendChild(s);
+    }
+    const el = document.createElement('div');
+    el.className = 'note '+(n.lane<4?'p1':'p2');
+    el.style.top = (y-9)+'px';
+    el.style.left = (laneX+9)+'px';
+    el.textContent = LANE_GLYPH[n.lane%4];
+    el.title = `t=${Math.round(n.t)}ms lane=${n.lane}`;
+    el.addEventListener('mousedown', (e)=>{ e.stopPropagation(); });
+    el.addEventListener('click', (e)=>{ e.stopPropagation(); state.song.notes.splice(i,1); renderTimeline(); updateNoteCount(); });
+    timeline.appendChild(el);
+  });
+
+  const ph = document.createElement('div');
+  ph.className = 'playhead';
+  ph.id = 'playheadEl';
+  ph.style.top = (currentChartTimeMs()*pxPerMs())+'px';
+  ph.style.width = (64*4*2+22)+'px';
+  timeline.appendChild(ph);
+
+  updateNoteCount();
+}
+function laneToX(lane){
+  return lane<4 ? lane*64 : (4*64+22)+(lane-4)*64;
+}
+function updateNoteCount(){ $('noteCountTag').textContent = state.song.notes.length+' нот'; }
+
+function onLaneMouseDown(e, lane, colEl){
+  const timelineRect = $('timeline').getBoundingClientRect();
+  const y = e.clientY - timelineRect.top;
+  const tRaw = y / pxPerMs();
+  const s = stepMs();
+  const tSnap = Math.round(tRaw/s)*s;
+
+  const existing = state.song.notes.find(n=> n.lane===lane && Math.abs(n.t-tSnap) < s*0.4);
+  if(existing) return;
+
+  const newNote = {t:Math.max(0,tSnap), lane, sustain:0};
+  state.song.notes.push(newNote);
+  state.chart.dragNote = newNote;
+
+  const onMove = (ev)=>{
+    const y2 = ev.clientY - $('timeline').getBoundingClientRect().top;
+    const t2 = Math.round((y2/pxPerMs())/s)*s;
+    const sus = Math.max(0, t2 - newNote.t - s*0.5);
+    newNote.sustain = sus>s*0.5 ? sus : 0;
+    renderTimeline();
+  };
+  const onUp = ()=>{
+    state.chart.dragNote = null;
+    window.removeEventListener('mousemove', onMove);
+    window.removeEventListener('mouseup', onUp);
+    renderTimeline();
+  };
+  window.addEventListener('mousemove', onMove);
+  window.addEventListener('mouseup', onUp);
+
+  renderTimeline();
+}
+
+/* ---- transport / playback (chart preview) ---- */
+function currentChartTimeMs(){
+  if(!state.chart.playing) return state.chart.startOffset;
+  // performance.now()-based — matches the Play view fix, immune to AudioContext clock stalls
+  return state.chart.startOffset + (performance.now() - state.chart.startedAtPerf);
+}
+function toggleChartPlayback(){
+  if(state.activeTab!=='charting') return;
+  state.chart.playing ? stopChartPlayback() : startChartPlayback();
+}
+$('playChartBtn').addEventListener('click', toggleChartPlayback);
+$('stopChartBtn').addEventListener('click', ()=>{ stopChartPlayback(); state.chart.startOffset=0; renderTimeline(); updateTimeLabel(); });
+
+function startChartPlayback(){
+  const ctx = getAudioCtx();
+  ctx.resume();
+  // if the current playhead position has scrolled out of view, jump to what the player is
+  // actually looking at instead of resuming somewhere off-screen — exact pause position is
+  // kept when it's still visible, so a simple pause/play doesn't jump around.
+  const wrap = $('timelineWrap');
+  const currentY = state.chart.startOffset * pxPerMs();
+  const viewTop = wrap.scrollTop, viewBottom = wrap.scrollTop + wrap.clientHeight;
+  if(currentY < viewTop || currentY > viewBottom){
+    state.chart.startOffset = Math.max(0, viewTop / pxPerMs());
+  }
+  state.chart.playing = true;
+  state.chart.startedAtPerf = performance.now();
+  const offsetSec = state.chart.startOffset/1000;
+  // reset the auto-click tracking for a fresh pass through the timeline
+  state.song.notes.forEach(n=> n._chartClicked = false);
+
+  if(state.chart.instBuf){
+    const src = ctx.createBufferSource();
+    src.buffer = state.chart.instBuf;
+    src.connect(ctx.destination);
+    src.start(0, Math.min(offsetSec, state.chart.instBuf.duration));
+    state.chart.instSrc = src;
+  }
+  if(state.chart.voicesBuf){
+    const src2 = ctx.createBufferSource();
+    src2.buffer = state.chart.voicesBuf;
+    src2.connect(ctx.destination);
+    src2.start(0, Math.min(offsetSec, state.chart.voicesBuf.duration));
+    state.chart.voicesSrc = src2;
+  }
+  $('playChartBtn').textContent = '⏸ Pause';
+  requestAnimationFrame(chartTick);
+}
+function stopChartPlayback(){
+  if(!state.chart.playing){ return; }
+  state.chart.startOffset = currentChartTimeMs();
+  state.chart.playing = false;
+  $('playChartBtn').textContent = '▶ Play';
+  try{ state.chart.instSrc && state.chart.instSrc.stop(); }catch(e){}
+  try{ state.chart.voicesSrc && state.chart.voicesSrc.stop(); }catch(e){}
+}
+function chartTick(){
+  if(!state.chart.playing) return;
+  try{
+    const t = currentChartTimeMs();
+    const ph = $('playheadEl');
+    if(ph) ph.style.top = (t*pxPerMs())+'px';
+    updateTimeLabel();
+    // click sound: fires automatically once, exactly when the playback bar crosses a
+    // player-lane note — not tied to any keypress. Notes already behind the start point
+    // (e.g. after jumping to a scrolled section) are marked silently so they don't all
+    // fire at once.
+    if(state.settings.clickSound){
+      state.song.notes.forEach(n=>{
+        if(n.lane<4 && !n._chartClicked && t>=n.t){
+          n._chartClicked = true;
+          if(t-n.t < 250) playClickSound();
+        }
+      });
+    }
+    const wrap = $('timelineWrap');
+    const y = t*pxPerMs();
+    if(y < wrap.scrollTop || y > wrap.scrollTop+wrap.clientHeight-80){
+      wrap.scrollTop = Math.max(0, y-100);
+    }
+    if(t >= totalDurationMs()){ stopChartPlayback(); state.chart.startOffset=0; renderTimeline(); return; }
+  }catch(err){ console.error('chartTick error:', err); }
+  requestAnimationFrame(chartTick);
+}
+function updateTimeLabel(){
+  $('timeLabel').textContent = fmtTime(currentChartTimeMs())+' / '+fmtTime(totalDurationMs());
+}
+
+/* ---- save / load song json ---- */
+$('saveSongBtn').addEventListener('click', ()=>{
+  const json = {
+    songName: state.song.name,
+    bpm: state.song.bpm,
+    speed: state.song.speed,
+    beatsPerBar: state.song.beatsPerBar,
+    sectionBars: state.song.sectionBars||4,
+    needsVoices: !!state.song.voicesFile,
+    instFile: state.song.instFile ? state.song.instFile.name : null,
+    voicesFile: state.song.voicesFile ? state.song.voicesFile.name : null,
+    playerChar: state.song.playerCharId || null,
+    opponentChar: state.song.opponentCharId || null,
+    notes: state.song.notes.map(n=>({t:Math.round(n.t), lane:n.lane, sustain:Math.round(n.sustain)}))
+  };
+  downloadJSON(json, (state.song.name||'song').toLowerCase().replace(/\s+/g,'-')+'.json');
+});
+$('loadSongBtn').addEventListener('click', ()=>{
+  const inp = document.createElement('input');
+  inp.type = 'file'; inp.accept = '.json,application/json';
+  inp.addEventListener('change', async ()=>{
+    const f = inp.files[0]; if(!f) return;
+    try{
+      const data = JSON.parse(await f.text());
+      state.song.name = data.songName||'Song'; $('songName').value = state.song.name;
+      state.song.bpm = data.bpm||100; $('songBpm').value = state.song.bpm;
+      state.song.speed = data.speed||1; $('songSpeed').value = state.song.speed;
+      state.song.beatsPerBar = data.beatsPerBar||4; $('songBeats').value = state.song.beatsPerBar;
+      state.song.sectionBars = data.sectionBars||4; if($('sectionBarsInput')) $('sectionBarsInput').value = state.song.sectionBars;
+      state.song.playerCharId = data.playerChar || '';
+      state.song.opponentCharId = data.opponentChar || '';
+      refreshDataCharSelects();
+      $('dataPlayerChar').value = state.library.some(c=>c.id===state.song.playerCharId) ? state.song.playerCharId : '';
+      $('dataOpponentChar').value = state.library.some(c=>c.id===state.song.opponentCharId) ? state.song.opponentCharId : '';
+      state.song.notes = (data.notes||[]).map(n=>({t:n.t, lane:n.lane, sustain:n.sustain||0}));
+      renderTimeline();
+    }catch(err){ alert('Не удалось прочитать JSON: '+err.message); }
+  });
+  inp.click();
+});
+function downloadJSON(obj, filename){
+  const blob = new Blob([JSON.stringify(obj,null,2)], {type:'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(()=>URL.revokeObjectURL(a.href), 2000);
+}
+
+/* ============================================================
+   PLAY VIEW — actual gameplay (note highway, judging, health)
+   ============================================================ */
+const HIT_WINDOW = 160;   // ms — latest a keypress can still count as a hit
+const JUDGE = [ {name:'SICK', win:45, health:4, score:100},
+                {name:'GOOD', win:90, health:2.5, score:70},
+                {name:'BAD',  win:160, health:0.5, score:30} ];
+
+$('testPlayBtn').addEventListener('click', ()=>{ closeEditor(); openPlayView(null); });
+$('playBackBtn').addEventListener('click', closePlayView);
+$('summaryBack').addEventListener('click', closePlayView);
+$('summaryRetry').addEventListener('click', ()=>{ $('playSummary').classList.remove('show'); startPlaySession(); });
+$('playStartBtn').addEventListener('click', startPlaySession); // always (re)starts — startPlaySession stops any existing run itself
+
+// --- data accessors: read from a picked Freeplay song, or fall back to the live Chart Editor state ---
+function playInstBuf(){ return state.activePlaySong ? state.activePlaySong.instBuf : state.chart.instBuf; }
+function playVoicesBuf(){ return state.activePlaySong ? state.activePlaySong.voicesBuf : state.chart.voicesBuf; }
+function playNotesSource(){ return state.activePlaySong ? state.activePlaySong.notes : state.song.notes; }
+function playSpeed(){ return state.activePlaySong ? state.activePlaySong.speed : state.song.speed; }
+function playTotalDurationMs(){
+  const inst = playInstBuf(), voices = playVoicesBuf();
+  const instMs = inst ? inst.duration*1000 : 0;
+  const voicesMs = voices ? voices.duration*1000 : 0;
+  const notes = playNotesSource();
+  const lastNoteMs = notes.length ? Math.max.apply(null, notes.map(n=>n.t+(n.sustain||0))) : 0;
+  return Math.max(instMs, voicesMs, lastNoteMs+2000, 5000);
+}
+
+function openPlayView(songEntry){
+  state.activePlaySong = songEntry || null;
+  refreshPlayCharSelect();
+  const meta = songEntry || state.song;
+  $('playCharSelectPlayer').value = state.library.some(c=>c.id===meta.playerCharId) ? meta.playerCharId : '';
+  $('playCharSelectOpp').value = state.library.some(c=>c.id===meta.opponentCharId) ? meta.opponentCharId : '';
+  $('playSongTitle').textContent = songEntry ? songEntry.name : (state.song.name || 'Без названия');
+  $('touchControls').classList.toggle('show', state.device.type==='mobile');
+  showScreen('playView');
+  resizePlayCanvas();
+  drawIdlePlayFrame();
+}
+function closePlayView(){
+  stopPlaySession();
+  $('playView').classList.remove('open');
+  $('playSummary').classList.remove('show');
+  $('summaryRetry').style.display = '';
+  if(state.mp.active){
+    state.mp.active = false;
+    mpReady = false;
+    $('mpReadyBtn').textContent = 'Готов';
+    mpSend({type:'unready'});
+    showScreen('multiplayerView');
+    renderMpLobby();
+  } else {
+    showScreen('startMenu');
+  }
+}
+
+const playCanvas = $('playCanvas');
+const playCtx = playCanvas.getContext('2d');
+function resizePlayCanvas(){
+  const rect = playCanvas.parentElement.getBoundingClientRect();
+  playCanvas.width = Math.max(1, Math.floor(rect.width * (window.devicePixelRatio||1)));
+  playCanvas.height = Math.max(1, Math.floor(rect.height * (window.devicePixelRatio||1)));
+}
+window.addEventListener('resize', ()=>{
+  if($('playView').classList.contains('open')) resizePlayCanvas();
+  if(state.activeTab==='charting' && state.editorOpen) requestAnimationFrame(renderTimeline);
+});
+
+/* ---- touch controls: same attemptHit/releaseHold path as the keyboard, auto-shown on mobile ---- */
+document.querySelectorAll('#touchControls .touch-btn').forEach(btn=>{
+  const lane = +btn.dataset.lane;
+  const press = (e)=>{
+    e.preventDefault();
+    btn.classList.add('active');
+    if(state.play && state.play.running) attemptHit(lane);
+  };
+  const release = (e)=>{
+    e.preventDefault();
+    btn.classList.remove('active');
+    if(state.play && state.play.running) releaseHold(lane);
+  };
+  btn.addEventListener('touchstart', press, {passive:false});
+  btn.addEventListener('touchend', release, {passive:false});
+  btn.addEventListener('touchcancel', release, {passive:false});
+  // mouse fallback — lets touch-detected-but-mouse-tested setups (or a touchscreen laptop) still work
+  btn.addEventListener('mousedown', press);
+  btn.addEventListener('mouseup', release);
+  btn.addEventListener('mouseleave', release);
+});
+
+function startPlaySession(){
+  const instBuf = playInstBuf();
+  const notesSrc = playNotesSource();
+  if(!instBuf && !notesSrc.length){
+    alert('Сначала загрузи Inst.ogg (Data) и расставь ноты (Charting), либо выбери песню во Freeplay.');
+    return;
+  }
+  stopPlaySession(); // safe even if nothing was running — this is what makes "Рестарт" actually work
+  const playerChar = state.library.find(c=>c.id===$('playCharSelectPlayer').value) || null;
+  const opponentChar = state.library.find(c=>c.id===$('playCharSelectOpp').value) || null;
+
+  const ctx = getAudioCtx();
+  ctx.resume();
+  const notes = notesSrc.map(n=>Object.assign({}, n, {hit:false, missed:false, _holding:false}));
+
+  const sess = {
+    running:true, notes,
+    startedAtPerf: performance.now(), startOffsetMs:0, // performance.now() — never gets stuck if the AudioContext clock stalls
+    score:0, combo:0, maxCombo:0, hits:0, misses:0, health:50,
+    heldLane:{0:null,1:null,2:null,3:null}, // sustain note currently being held per lane
+    playerChar, animState:'idle', animUntil:0, animFrameIdx:0, animLastTs:0,
+    opponentChar, oppAnimState:'idle', oppAnimUntil:0, oppAnimFrameIdx:0, oppAnimLastTs:0,
+    judgeText:null, judgeUntil:0,
+    instSrc:null, voicesSrc:null, raf:null
+  };
+  const voicesBuf = playVoicesBuf();
+  if(instBuf){
+    const s = ctx.createBufferSource(); s.buffer = instBuf; s.connect(ctx.destination); s.start(0);
+    sess.instSrc = s;
+  }
+  if(voicesBuf){
+    const s2 = ctx.createBufferSource(); s2.buffer = voicesBuf; s2.connect(ctx.destination); s2.start(0);
+    sess.voicesSrc = s2;
+  }
+  state.play = sess;
+  $('playStartBtn').textContent = '↻ Рестарт';
+  sess.raf = requestAnimationFrame(playLoop);
+}
+function stopPlaySession(){
+  if(!state.play) return;
+  try{ state.play.instSrc && state.play.instSrc.stop(); }catch(e){}
+  try{ state.play.voicesSrc && state.play.voicesSrc.stop(); }catch(e){}
+  if(state.play.raf) cancelAnimationFrame(state.play.raf);
+  state.play = null;
+}
+function playCurrentTimeMs(){
+  if(!state.play) return 0;
+  // performance.now()-based clock: independent of AudioContext state, so it can never "freeze" if audio decoding/resume is flaky
+  return (performance.now() - state.play.startedAtPerf) + state.play.startOffsetMs;
+}
+
+document.addEventListener('keydown', (e)=>{
+  if(!state.play || !state.play.running) return;
+  const typing = ['INPUT','SELECT','TEXTAREA'].includes(document.activeElement.tagName);
+  if(typing) return;
+  const lane = state.settings.keyBindings.indexOf(e.code);
+  if(lane<0) return;
+  e.preventDefault();
+  if(e.repeat) return; // holding a key fires repeated keydowns — ignore them, only the release matters now
+  attemptHit(lane);
+});
+document.addEventListener('keyup', (e)=>{
+  if(!state.play || !state.play.running) return;
+  const lane = state.settings.keyBindings.indexOf(e.code);
+  if(lane<0) return;
+  releaseHold(lane);
+});
+
+// which actual note-lanes (0-3 or 4-7) MY physical keys control this session.
+// Outside an active role-assigned multiplayer match this is always the classic 0-3 "player" side.
+function myControlledLanes(){
+  return (state.mp.active && state.mp.myRole==='opponent') ? [4,5,6,7] : [0,1,2,3];
+}
+function physicalToActualLane(physicalLane){
+  return (state.mp.active && state.mp.myRole==='opponent') ? physicalLane+4 : physicalLane;
+}
+function attemptHit(lane){
+  playClickSound(); // audible feedback for every press of the player's own key
+  const sess = state.play;
+  if(sess.heldLane[lane]) return; // already holding a sustain note on this lane
+  const actualLane = physicalToActualLane(lane);
+  const t = playCurrentTimeMs();
+  let best = null, bestDiff = Infinity;
+  sess.notes.forEach(n=>{
+    if(n.lane!==actualLane || n.hit || n.missed || n._holding) return;
+    const diff = Math.abs(n.t - t);
+    if(diff < bestDiff){ bestDiff = diff; best = n; }
+  });
+  if(best && bestDiff <= HIT_WINDOW){
+    const j = JUDGE.find(j=>bestDiff<=j.win) || JUDGE[JUDGE.length-1];
+    sess.score += j.score;
+    sess.combo++; sess.maxCombo = Math.max(sess.maxCombo, sess.combo);
+    sess.hits++;
+    sess.health = Math.min(100, sess.health + j.health);
+    setJudgeText(j.name);
+    if(best.sustain>0){
+      // sustain note: only the head is judged now — must hold the key down through the tail,
+      // it doesn't count as fully hit yet
+      best._holding = true;
+      sess.heldLane[lane] = best;
+      triggerAnim(LANE_ANIM[lane], Math.min(best.sustain+150, 1200));
+      mpSendNoteEvent(best, 'holdstart');
+    } else {
+      best.hit = true;
+      triggerAnim(LANE_ANIM[lane], 220);
+      mpSendNoteEvent(best, 'hit');
+    }
+    mpSendStats(sess);
+  }
+  // no note nearby: ghost tap, no penalty (matches classic FNF behaviour)
+}
+function releaseHold(lane){
+  const sess = state.play;
+  const n = sess.heldLane[lane];
+  if(!n) return;
+  const t = playCurrentTimeMs();
+  const endT = n.t + n.sustain;
+  if(t < endT - 60){
+    // let go too early — the remainder of the hold is dropped
+    n.missed = true; n._holding = false;
+    sess.misses++; sess.combo = 0;
+    sess.health = Math.max(0, sess.health - 3);
+    mpSendNoteEvent(n, 'miss');
+  } else {
+    n.hit = true; n._holding = false;
+    sess.score += 20; // small completion bonus for holding it out
+    mpSendNoteEvent(n, 'hit');
+  }
+  sess.heldLane[lane] = null;
+  mpSendStats(sess);
+}
+function mpSendStats(sess){
+  if(!state.mp.active) return;
+  mpSend({type:'hit', score:sess.score, health:sess.health, combo:sess.combo});
+}
+function mpSendNoteEvent(note, kind){
+  if(!state.mp.active || !state.play) return;
+  const idx = state.play.notes.indexOf(note);
+  if(idx<0) return;
+  mpSend({type:'note_event', idx, kind});
+}
+function setJudgeText(name){
+  state.play.judgeText = name;
+  state.play.judgeUntil = performance.now()+420;
+}
+function triggerAnim(name, holdMs){
+  if(!state.play) return;
+  const sess = state.play;
+  if(sess.playerChar && sess.playerChar.animations.some(a=>a.anim===name)){
+    sess.animState = name;
+    sess.animUntil = performance.now()+holdMs;
+    sess.animFrameIdx = 0;
+  }
+}
+function triggerOpponentAnim(name, holdMs){
+  if(!state.play) return;
+  const sess = state.play;
+  if(sess.opponentChar && sess.opponentChar.animations.some(a=>a.anim===name)){
+    sess.oppAnimState = name;
+    sess.oppAnimUntil = performance.now()+holdMs;
+    sess.oppAnimFrameIdx = 0;
+  }
+}
+
+function playLoop(){
+  const sess = state.play;
+  if(!sess || !sess.running) return;
+  try{
+    const t = playCurrentTimeMs();
+    const dur = playTotalDurationMs();
+
+    let statsChanged = false;
+    const mine = myControlledLanes();
+    // both sides are real people iff we're in an active MP match with roles actually assigned
+    const humanControlledBothSides = state.mp.active && !!state.mp.oppRole;
+
+    sess.notes.forEach(n=>{
+      if(n.hit || n.missed || n._holding) return; // held notes are resolved separately below
+      if(mine.includes(n.lane)){
+        // notes on my own controlled lanes — I judge these by time (miss if the window passed)
+        if(t - n.t > HIT_WINDOW){
+          n.missed = true; sess.misses++; sess.combo = 0;
+          sess.health = Math.max(0, sess.health - 6);
+          playMissSound();
+          statsChanged = true;
+          mpSendNoteEvent(n, 'miss');
+        }
+      } else if(!humanControlledBothSides){
+        // the "other side" isn't a real connected player — classic bot auto-play (singleplayer/Freeplay,
+        // or multiplayer before roles are assigned)
+        if(t >= n.t){
+          if(n.sustain>0){ n._holding = true; triggerOpponentAnim(LANE_ANIM[n.lane%4], Math.max(260, n.sustain)); }
+          else { n.missed = true; triggerOpponentAnim(LANE_ANIM[n.lane%4], 260); }
+        }
+      }
+      // else: a real remote human controls this lane — its state arrives via 'note_event' relay,
+      // nothing to resolve locally
+    });
+
+    // sustain notes run their course on their own timer regardless of who (if anyone) is
+    // holding them — my own holds are also force-completed here as a safety net in case a
+    // keyup event was ever missed (e.g. window lost focus while held)
+    sess.notes.forEach(n=>{
+      if(!n._holding || t < n.t+n.sustain) return;
+      if(mine.includes(n.lane)){
+        n._holding = false;
+        const heldKey = n.lane % 4; // heldLane is keyed by physical key (0-3) regardless of role
+        if(sess.heldLane[heldKey]===n){
+          n.hit = true; sess.score += 20; sess.heldLane[heldKey] = null; statsChanged = true;
+          mpSendNoteEvent(n, 'hit');
+        } else {
+          n.hit = true; // already released via keyup just before this tick
+        }
+      } else if(!humanControlledBothSides){
+        n._holding = false; n.missed = true; // bot completes its own hold silently
+      }
+      // else: remote-human-controlled — wait for their relayed final state
+    });
+    if(statsChanged) mpSendStats(sess);
+
+    if(performance.now() > sess.animUntil && sess.animState!=='idle'){ sess.animState='idle'; }
+    if(performance.now() > sess.oppAnimUntil && sess.oppAnimState!=='idle'){ sess.oppAnimState='idle'; }
+
+    drawPlayFrame(sess, t);
+
+    if(sess.health<=0){ endPlaySession(sess, false); return; }
+    if(t >= dur + 400){ endPlaySession(sess, true); return; }
+  }catch(err){
+    // never let a draw/logic error silently kill the loop — log it and keep the clock moving
+    console.error('playLoop error:', err);
+  }
+  sess.raf = requestAnimationFrame(playLoop);
+}
+
+function endPlaySession(sess, finished){
+  sess.running = false;
+  try{ sess.instSrc && sess.instSrc.stop(); }catch(e){}
+  try{ sess.voicesSrc && sess.voicesSrc.stop(); }catch(e){}
+  const acc = sess.hits+sess.misses>0 ? Math.round(100*sess.hits/(sess.hits+sess.misses)) : 100;
+  $('summaryRetry').style.display = state.mp.active ? 'none' : '';
+  if(state.mp.active){
+    state.mp.myFinished = {score:sess.score, maxCombo:sess.maxCombo, accuracy:acc};
+    mpSend({type:'finish', score:sess.score, maxCombo:sess.maxCombo, accuracy:acc});
+    renderMpSummary();
+  } else {
+    $('summaryTitle').textContent = finished ? 'Песня пройдена' : 'Поражение';
+    $('summaryStats').innerHTML =
+      `Счёт: <b>${sess.score}</b><br>Макс. комбо: <b>${sess.maxCombo}</b><br>`+
+      `Точность: <b>${acc}%</b><br>Пропущено: <b>${sess.misses}</b>`;
+    $('playSummary').classList.add('show');
+  }
+  $('playStartBtn').textContent = '▶ Старт';
+}
+
+function drawIdlePlayFrame(){
+  const w = playCanvas.width, h = playCanvas.height;
+  playCtx.clearRect(0,0,w,h);
+  playCtx.fillStyle = '#0d0e14';
+  playCtx.fillRect(0,0,w,h);
+  playCtx.fillStyle = '#5a5f78';
+  playCtx.font = Math.round(h*0.03)+'px sans-serif';
+  playCtx.textAlign = 'center';
+  playCtx.fillText('Нажми "Старт", чтобы начать', w/2, h/2);
+}
+
+// draws a character's health icon (left half of their icon image = "alive", right half = "losing")
+// centered at (cx,cy) with a square side of `size`
+function drawHealthIcon(charObj, isLosing, cx, cy, size){
+  if(!charObj || !charObj.iconEl) return;
+  const img = charObj.iconEl;
+  const halfW = img.width/2;
+  const sx = isLosing ? halfW : 0;
+  if(charObj.iconFlipX){
+    playCtx.save();
+    playCtx.translate(cx, 0);
+    playCtx.scale(-1, 1);
+    playCtx.drawImage(img, sx, 0, halfW, img.height, -size/2, cy-size/2, size, size);
+    playCtx.restore();
+  } else {
+    playCtx.drawImage(img, sx, 0, halfW, img.height, cx-size/2, cy-size/2, size, size);
+  }
+}
+
+function drawSessionCharacter(sess, charObj, animState, frameIdxKey, lastTsKey, cx, cy, boxW, boxH, canvasH){
+  const dpr = window.devicePixelRatio||1;
+  if(!charObj){
+    playCtx.strokeStyle = '#333850';
+    playCtx.setLineDash([6*dpr,6*dpr]);
+    playCtx.strokeRect(cx-boxW/2, cy-boxH/2, boxW, boxH);
+    playCtx.setLineDash([]);
+    playCtx.fillStyle = '#5a5f78';
+    playCtx.font = Math.round(canvasH*0.022)+'px sans-serif';
+    playCtx.textAlign = 'center';
+    playCtx.fillText('не выбран', cx, cy+boxH*0.02);
+    return;
+  }
+  const animDef = charObj.animations.find(a=>a.anim===animState) || charObj.animations.find(a=>a.anim==='idle');
+  if(!animDef){
+    playCtx.fillStyle = '#ff5f5f';
+    playCtx.font = Math.round(canvasH*0.02)+'px sans-serif';
+    playCtx.textAlign = 'center';
+    playCtx.fillText('⚠ нет "idle" у '+charObj.label, cx, cy);
+    return;
+  }
+  const frames = charObj.groups[animDef.prefix] || [];
+  const now = performance.now();
+  const interval = 1000/Math.max(1,animDef.fps);
+  if(now - sess[lastTsKey] >= interval){
+    sess[lastTsKey] = now;
+    sess[frameIdxKey] = (sess[frameIdxKey]+1) % Math.max(1,frames.length);
+  }
+  const f = frames[sess[frameIdxKey] % Math.max(1,frames.length)];
+  if(f) drawAtlasFrame(playCtx, charObj.imgEl, f, cx, cy, boxW, boxH, charObj.scale||1, charObj.flipX);
+}
+
+function drawPlayFrame(sess, t){
+  const w = playCanvas.width, h = playCanvas.height;
+  const dpr = window.devicePixelRatio||1;
+  playCtx.clearRect(0,0,w,h);
+  playCtx.fillStyle = '#0d0e14';
+  playCtx.fillRect(0,0,w,h);
+
+  const receptorY = h*0.16;
+  const laneCount = 4, gap = 14*dpr;
+  const laneSize = Math.min(56*dpr, (w*0.42)/laneCount);
+  const leftStartX = w*0.06;
+  const rightStartX = w*0.54;
+  const pxPerMs = (h*0.00042) * (playSpeed()||1);
+
+  function laneX(lane){
+    // player lanes (0-3) render on the right (matches where the player character stands),
+    // opponent lanes (4-7) render on the left — matches classic FNF layout
+    if(lane<4) return rightStartX + lane*(laneSize+gap);
+    return leftStartX + (lane-4)*(laneSize+gap);
+  }
+
+  // receptors
+  for(let l=0;l<8;l++){
+    const x = laneX(l);
+    playCtx.beginPath();
+    playCtx.arc(x+laneSize/2, receptorY, laneSize/2, 0, Math.PI*2);
+    playCtx.strokeStyle = l<4 ? '#43e6c4' : '#ff5f96';
+    playCtx.lineWidth = 2*dpr;
+    playCtx.globalAlpha = 0.55;
+    playCtx.stroke();
+    playCtx.globalAlpha = 1;
+    playCtx.fillStyle = l<4 ? '#43e6c4' : '#ff5f96';
+    playCtx.font = Math.round(laneSize*0.42)+'px sans-serif';
+    playCtx.textAlign = 'center'; playCtx.textBaseline='middle';
+    playCtx.fillText(LANE_GLYPH[l%4], x+laneSize/2, receptorY+1);
+  }
+
+  // notes: y = receptorY + (n.t - t) * pxPerMs  (fall from below, arrive at receptor)
+  sess.notes.forEach(n=>{
+    if(n.hit || n.missed) return;
+    const x = laneX(n.lane);
+    if(n._holding){
+      // being actively held: the head is "consumed", only the remaining tail is shown,
+      // shrinking toward the receptor as the hold progresses
+      const endY = receptorY + (n.t+n.sustain - t) * pxPerMs;
+      if(endY > receptorY - 2){
+        const tailW = laneSize*0.24;
+        playCtx.fillStyle = n.lane<4 ? '#43e6c4' : '#ff5f96';
+        playCtx.globalAlpha = 0.65;
+        playCtx.fillRect(x+laneSize/2-tailW/2, receptorY, tailW, endY-receptorY);
+        playCtx.globalAlpha = 1;
+      }
+      return;
+    }
+    const y = receptorY + (n.t - t) * pxPerMs;
+    if(y < -60*dpr || y > h+60*dpr) return;
+    // sustain tail — trails behind the head toward where it's coming from (later time = further down)
+    if(n.sustain>0){
+      const tailH = n.sustain*pxPerMs;
+      const tailW = laneSize*0.24;
+      playCtx.fillStyle = n.lane<4 ? '#43e6c4' : '#ff5f96';
+      playCtx.globalAlpha = 0.45;
+      playCtx.fillRect(x+laneSize/2-tailW/2, y, tailW, tailH);
+      playCtx.globalAlpha = 1;
+    }
+    playCtx.beginPath();
+    if(playCtx.roundRect) playCtx.roundRect(x, y-laneSize/2, laneSize, laneSize, 10*dpr);
+    else playCtx.rect(x, y-laneSize/2, laneSize, laneSize);
+    playCtx.fillStyle = n.lane<4 ? '#43e6c4' : '#ff5f96';
+    playCtx.fill();
+    playCtx.fillStyle = '#0a1512';
+    playCtx.font = Math.round(laneSize*0.42)+'px sans-serif';
+    playCtx.textAlign = 'center'; playCtx.textBaseline='middle';
+    playCtx.fillText(LANE_GLYPH[n.lane%4], x+laneSize/2, y+1);
+  });
+
+  // characters — opponent on the left, player on the right (classic FNF layout)
+  drawSessionCharacter(sess, sess.opponentChar, sess.oppAnimState, 'oppAnimFrameIdx', 'oppAnimLastTs', w*0.24, h*0.66, w*0.34, h*0.5, h);
+  drawSessionCharacter(sess, sess.playerChar, sess.animState, 'animFrameIdx', 'animLastTs', w*0.76, h*0.66, w*0.34, h*0.5, h);
+
+  // health bar
+  const hbY = h*0.06, hbW = w*0.5, hbX = w*0.25, hbH = 12*dpr;
+  playCtx.fillStyle = '#1c1f2b';
+  playCtx.fillRect(hbX, hbY, hbW, hbH);
+  playCtx.fillStyle = sess.health>30 ? '#43e6c4' : '#ff5f5f';
+  playCtx.fillRect(hbX, hbY, hbW*(sess.health/100), hbH);
+  playCtx.strokeStyle = '#333850'; playCtx.strokeRect(hbX,hbY,hbW,hbH);
+
+  // health icons — player on the left end, opponent on the right end of the bar
+  const iconSize = hbH*4.2;
+  drawHealthIcon(sess.playerChar, sess.health<30, hbX, hbY+hbH/2, iconSize);
+  drawHealthIcon(sess.opponentChar, sess.health>70, hbX+hbW, hbY+hbH/2, iconSize);
+
+  // score / combo
+  playCtx.textAlign = 'left';
+  playCtx.fillStyle = '#e8eaf4';
+  playCtx.font = 'bold '+Math.round(h*0.026)+'px sans-serif';
+  playCtx.fillText('Счёт: '+sess.score, w*0.04, h*0.05);
+
+  // remaining time — counts down to 0:00 based on the song's own duration
+  const remainMs = Math.max(0, playTotalDurationMs() - t);
+  playCtx.textAlign = 'right';
+  playCtx.fillStyle = '#e8eaf4';
+  playCtx.font = 'bold '+Math.round(h*0.026)+'px sans-serif';
+  playCtx.fillText(fmtTimeShort(remainMs), w*0.96, h*0.05);
+
+  // live opponent stats (multiplayer only)
+  if(state.mp.active){
+    const oppPlayer = state.mp.players.find(p=>p.id!==state.mp.youId);
+    const oppDevIcon = deviceIcon(oppPlayer ? oppPlayer.device : 'desktop');
+    const oppPingStr = state.mp.oppPing!=null ? state.mp.oppPing+'ms' : '…';
+    playCtx.textAlign = 'left';
+    playCtx.fillStyle = '#ff9fc4';
+    playCtx.font = 'bold '+Math.round(h*0.02)+'px sans-serif';
+    playCtx.fillText(oppDevIcon+' Соперник: '+state.mp.oppStats.score+' · '+Math.round(state.mp.oppStats.health)+'♥ · '+oppPingStr, w*0.04, h*0.09);
+    playCtx.fillStyle = '#6a6f88';
+    playCtx.font = Math.round(h*0.015)+'px sans-serif';
+    playCtx.fillText(deviceIcon(state.mp.myDevice)+' Ты: '+(state.mp.myPing!=null?state.mp.myPing+'ms':'…'), w*0.04, h*0.115);
+    if(sess.oppLeft){
+      playCtx.fillStyle = '#ff5f5f';
+      playCtx.font = 'bold '+Math.round(h*0.02)+'px sans-serif';
+      playCtx.fillText('⚠ соперник покинул матч', w*0.04, h*0.15);
+    }
+  }
+
+  if(sess.combo>0){
+    playCtx.textAlign='center';
+    playCtx.fillStyle = '#ffcf5c';
+    playCtx.font = 'bold '+Math.round(h*0.04)+'px sans-serif';
+    playCtx.fillText(sess.combo, w*0.5, h*0.34);
+  }
+  if(sess.judgeText && performance.now()<sess.judgeUntil){
+    playCtx.textAlign='center';
+    playCtx.fillStyle = '#43e6c4';
+    playCtx.font = 'bold '+Math.round(h*0.03)+'px sans-serif';
+    playCtx.fillText(sess.judgeText, w*0.5, h*0.28);
+  }
+}
+
+/* ============================================================
+   COLLAPSIBLE + RESIZABLE SIDE PANELS
+   ============================================================ */
+function setupSidePanel(toggleId, panelId){
+  $(toggleId).addEventListener('click', ()=>{
+    $(panelId).classList.toggle('collapsed');
+    if(panelId==='chartSidebar') requestAnimationFrame(renderTimeline);
+  });
+}
+setupSidePanel('charSidebarToggle', 'charSidebar');
+setupSidePanel('chartSidebarToggle', 'chartSidebar');
+
+function setupResizeHandle(handleId, panelId, min, max){
+  const handle = $(handleId), panel = $(panelId);
+  let dragging = false, startX = 0, startW = 0;
+  function down(clientX){
+    if(panel.classList.contains('collapsed')) return;
+    dragging = true; startX = clientX; startW = panel.getBoundingClientRect().width;
+    handle.classList.add('dragging');
+    document.body.style.userSelect = 'none';
+  }
+  function move(clientX){
+    if(!dragging) return;
+    const w = Math.min(max, Math.max(min, startW + (clientX - startX)));
+    panel.style.width = w+'px';
+  }
+  function up(){
+    if(!dragging) return;
+    dragging = false;
+    handle.classList.remove('dragging');
+    document.body.style.userSelect = '';
+  }
+  handle.addEventListener('mousedown', e=>{ down(e.clientX); e.preventDefault(); });
+  window.addEventListener('mousemove', e=> move(e.clientX));
+  window.addEventListener('mouseup', up);
+  handle.addEventListener('touchstart', e=>{ down(e.touches[0].clientX); }, {passive:true});
+  window.addEventListener('touchmove', e=>{ if(dragging) move(e.touches[0].clientX); }, {passive:true});
+  window.addEventListener('touchend', up);
+}
+setupResizeHandle('charResizeHandle', 'charSidebar', 220, 560);
+setupResizeHandle('chartResizeHandle', 'chartSidebar', 180, 480);
+
+/* init */
+renderAnimList();
+renderLibrary();
+renderTimeline();
+updateTimeLabel();
+})();
+</script>
+</body>
+</html>
