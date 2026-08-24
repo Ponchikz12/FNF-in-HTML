@@ -739,6 +739,8 @@
           <span class="grow"></span>
           <span class="tag" id="noteCountTag">0 нот</span>
           <button class="btn" id="loadSongBtn">⬆ Load Song JSON</button>
+          <button class="btn" id="importPsychBtn">⬆ Импорт из Psych Engine</button>
+          <input type="file" id="importPsychFile" accept=".json,application/json" style="display:none">
           <button class="btn" id="testPlayBtn">🎮 Тест в игре</button>
           <button class="btn btn-primary" id="saveSongBtn">⬇ Save Song JSON</button>
         </div>
@@ -2290,6 +2292,79 @@ $('loadSongBtn').addEventListener('click', ()=>{
   });
   inp.click();
 });
+
+/* ---- import a native FNF / Psych Engine chart JSON and convert it into our note format ----
+   Psych stores each section's notes as [strumTimeMs, noteData(0-7), sustainMs, noteType?].
+   Whether a note belongs to the player or the opponent depends on the section's
+   "mustHitSection" flag combined with noteData>3, exactly matching the original game's own
+   parsing rule (verified against Song.hx / PlayState.hx behaviour):
+     gottaHit = mustHitSection; if(noteData > 3) gottaHit = !gottaHit;
+   strumTime/sustain are already absolute milliseconds, so no BPM math is needed to place
+   notes correctly even across songs with mid-song BPM changes — only the editor's beat/bar
+   grid lines (drawn from a single global BPM) won't perfectly track those changes. */
+function looksLikePsychChart(data){
+  return !!(data && data.song && Array.isArray(data.song.notes));
+}
+function convertPsychSong(data){
+  const s = data.song;
+  const notes = [];
+  (s.notes||[]).forEach(section=>{
+    const mustHit = !!section.mustHitSection;
+    (section.sectionNotes||[]).forEach(sn=>{
+      const strumTime = sn[0], rawData = sn[1], sustain = sn[2]||0;
+      const visualLane = ((rawData % 4)+4)%4; // 0-3, defensive against odd/negative values
+      let gottaHit = mustHit;
+      if(rawData > 3) gottaHit = !gottaHit;
+      notes.push({ t: strumTime, lane: gottaHit ? visualLane : visualLane+4, sustain });
+    });
+  });
+  notes.sort((a,b)=> a.t-b.t);
+  return {
+    songName: s.song || 'Imported song',
+    bpm: s.bpm || 100,
+    speed: s.speed || 1,
+    needsVoices: !!s.needsVoices,
+    player1: s.player1 || '?', player2: s.player2 || '?',
+    notes
+  };
+}
+const HUGE_PSYCH_IMPORT_NOTE_COUNT = 15000; // above this, skip auto-rendering the DOM chart grid
+$('importPsychBtn').addEventListener('click', ()=> $('importPsychFile').click());
+$('importPsychFile').addEventListener('change', async (e)=>{
+  const f = e.target.files[0]; if(!f) return;
+  const btn = $('importPsychBtn');
+  btn.disabled = true; btn.textContent = 'Импортирую…';
+  try{
+    const data = JSON.parse(await f.text());
+    if(!looksLikePsychChart(data)){
+      alert('Это не похоже на чарт Psych Engine (ожидалась структура { "song": { "notes": [...] } }).');
+      return;
+    }
+    const conv = convertPsychSong(data);
+    state.song.name = conv.songName; $('songName').value = state.song.name;
+    state.song.bpm = conv.bpm; $('songBpm').value = state.song.bpm;
+    state.song.speed = conv.speed; $('songSpeed').value = state.song.speed;
+    state.song.notes = conv.notes;
+    const charNote = `Персонажи в исходнике: ${conv.player1} (player) / ${conv.player2} (opponent) — `+
+      `назначь подходящих вручную в библиотеке персонажей.`;
+    if(conv.notes.length > HUGE_PSYCH_IMPORT_NOTE_COUNT){
+      alert(`Импортировано: "${conv.songName}" — ${conv.notes.length} нот, BPM ${conv.bpm}.\n\n`+
+        `Это очень много для сетки чарт-редактора (она рисуется через DOM-элементы) — авто-отрисовку сетки `+
+        `пропускаю, иначе вкладка Charting может подвиснуть. Сам геймплей рисуется на canvas и с таким `+
+        `количеством нот работать должен нормально (🎮 Тест в игре).\n\n${charNote}`);
+    } else {
+      renderTimeline();
+      alert(`Импортировано: "${conv.songName}" — ${conv.notes.length} нот, BPM ${conv.bpm}.\n\n${charNote}`);
+    }
+    if(conv.needsVoices) alert('У этой песни needsVoices=true — не забудь загрузить Inst.ogg и Voices.ogg на вкладке Data (сам звук в JSON не хранится).');
+  }catch(err){
+    alert('Не удалось прочитать/распознать файл: '+err.message);
+  }finally{
+    btn.disabled = false; btn.textContent = '⬆ Импорт из Psych Engine';
+    e.target.value = '';
+  }
+});
+
 function downloadJSON(obj, filename){
   const blob = new Blob([JSON.stringify(obj,null,2)], {type:'application/json'});
   const a = document.createElement('a');
