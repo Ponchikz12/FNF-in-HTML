@@ -778,6 +778,12 @@
                 <span class="tag p2">P2 / Opponent</span> — правые 4 столбца
               </div>
             </div>
+            <div class="card">
+              <h3>Темп по секциям <span class="tag" id="sectionsCountTag"></span></h3>
+              <div id="tempoSectionsList" style="display:flex;flex-direction:column;gap:8px;"></div>
+              <button class="btn btn-p1" id="addTempoSectionBtn" style="width:100%;margin-top:8px;">+ Добавить секцию</button>
+              <div class="hint-text" style="margin-top:8px;">Пусто = вся песня на одном темпе (Data → BPM/Speed). Как только добавишь хоть одну секцию — темп и скорость идут по списку сверху вниз, каждая секция длится указанное число тактов, дальше начинается следующая.</div>
+            </div>
             </div>
           </div>
           <div class="resize-handle" id="chartResizeHandle"></div>
@@ -891,6 +897,8 @@ const state = {
     instFile:null, instURL:null, instDuration:0,
     voicesFile:null, voicesURL:null, voicesDuration:0,
     playerCharId:'', opponentCharId:'',
+    sections:[], // [] = whole song uses bpm/speed above uniformly. Non-empty = [{bars,bpm,speed}, ...],
+                 // each section's own tempo, walked in order from t=0 — see computeSongSections()
     notes:[] // {t(ms), lane(0-7), sustain(ms)}
   },
 
@@ -1131,6 +1139,7 @@ $('mpSongSelect').addEventListener('change', ()=>{
   if(!s) return;
   const song = {
     songName:s.name, bpm:s.bpm, speed:s.speed, beatsPerBar:s.beatsPerBar, sectionBars:s.sectionBars,
+    sections: s.sections||[],
     notes:s.notes
   };
   state.mp.song = song;
@@ -1362,7 +1371,7 @@ function beginMpMatch(){
   // (player/opponent) my assigned role actually controls, so it renders where I'm playing
   const iAmPlayer = state.mp.myRole !== 'opponent'; // default to player side if no role assigned yet
   const songEntry = {
-    name: s.songName, bpm:s.bpm, speed:s.speed, beatsPerBar:s.beatsPerBar,
+    name: s.songName, bpm:s.bpm, speed:s.speed, beatsPerBar:s.beatsPerBar, sections: s.sections||[],
     notes: s.notes, instBuf: state.mp.instBuf, voicesBuf: state.mp.voicesBuf,
     playerCharId: iAmPlayer ? $('mpMyChar').value : $('mpOppChar').value,
     opponentCharId: iAmPlayer ? $('mpOppChar').value : $('mpMyChar').value
@@ -1430,6 +1439,7 @@ $('addSongConfirm').addEventListener('click', async ()=>{
       id:'song'+Date.now(),
       name: d.songName || (d.__filename||'song').replace(/\.json$/i,''),
       bpm: d.bpm||100, speed: d.speed||1, beatsPerBar: d.beatsPerBar||4, sectionBars: d.sectionBars||4,
+      sections: Array.isArray(d.sections) ? d.sections.map(s=>({bars:s.bars||1, bpm:s.bpm||d.bpm||100, speed:s.speed||1})) : [],
       playerCharId: d.playerChar||'', opponentCharId: d.opponentChar||'',
       notes: (d.notes||[]).map(n=>({t:n.t, lane:n.lane, sustain:n.sustain||0})),
       instBuf, voicesBuf, instName: pendingInstFile.name, voicesName: pendingVoicesFile?pendingVoicesFile.name:null
@@ -2031,14 +2041,118 @@ $('zoomRange').addEventListener('input', e=>{ state.chart.zoom = +e.target.value
 $('snapSelect').addEventListener('change', e=>{ state.chart.snap = +e.target.value; renderTimeline(); });
 $('sectionBarsInput').addEventListener('input', e=>{ state.song.sectionBars = Math.max(1, +e.target.value||4); renderTimeline(); });
 
-function stepMs(){
+/* ---- per-section tempo (bpm/speed) list ---- */
+function renderTempoSections(){
+  const wrap = $('tempoSectionsList');
+  wrap.innerHTML = '';
+  $('sectionsCountTag').textContent = state.song.sections.length ? `(${state.song.sections.length})` : '';
+  state.song.sections.forEach((s,i)=>{
+    const row = document.createElement('div');
+    row.className = 'kb-row';
+    row.style.flexWrap = 'wrap';
+    row.innerHTML =
+      `<span class="kb-name" style="flex:0 0 22px;">#${i+1}</span>`+
+      `<input type="number" min="1" value="${s.bars}" style="width:52px;" data-field="bars" title="Тактов">`+
+      `<input type="number" min="1" value="${s.bpm}" style="width:60px;" data-field="bpm" title="BPM">`+
+      `<input type="number" min="0.1" step="0.1" value="${s.speed}" style="width:52px;" data-field="speed" title="Speed">`;
+    const removeBtn = document.createElement('button');
+    removeBtn.textContent = '✕';
+    removeBtn.addEventListener('click', ()=>{ state.song.sections.splice(i,1); renderTempoSections(); renderTimeline(); });
+    row.querySelectorAll('input').forEach(inp=>{
+      inp.addEventListener('input', ()=>{
+        const field = inp.dataset.field;
+        const fallback = field==='bars' ? 1 : (field==='bpm' ? 100 : 1);
+        state.song.sections[i][field] = Math.max(field==='speed'?0.1:1, +inp.value||fallback);
+        renderTimeline();
+      });
+    });
+    row.appendChild(removeBtn);
+    wrap.appendChild(row);
+  });
+}
+$('addTempoSectionBtn').addEventListener('click', ()=>{
+  const prev = state.song.sections[state.song.sections.length-1];
+  state.song.sections.push({
+    bars: prev ? prev.bars : 4,
+    bpm: prev ? prev.bpm : state.song.bpm,
+    speed: prev ? prev.speed : state.song.speed
+  });
+  renderTempoSections();
+  renderTimeline();
+});
+
+function stepMs(tMs){
+  const bpm = tMs!=null ? bpmAt(tMs) : state.song.bpm;
   const stepsPerBeat = state.chart.snap/4;
-  return (60000/state.song.bpm) / stepsPerBeat;
+  return (60000/bpm) / stepsPerBeat;
 }
 function totalDurationMs(){
   return Math.max(state.song.instDuration, state.song.voicesDuration, 30000);
 }
 function pxPerMs(){ return (state.chart.pxPerSecond*state.chart.zoom)/1000; }
+
+/* ============================================================
+   PER-SECTION TEMPO — bpm/speed can change at named section boundaries.
+   An empty sections list means the whole song uses its base bpm/speed uniformly,
+   exactly like before. A non-empty list is [{bars,bpm,speed}, ...] walked in order
+   from t=0; each section's own bar count decides where the next one starts.
+   ============================================================ */
+function computeSectionsFor(baseBpm, baseSpeed, beatsPerBar, sectionsList){
+  if(!sectionsList || !sectionsList.length){
+    const beatMs = 60000/baseBpm;
+    return [{ startMs:0, endMs:Infinity, bars:Infinity, bpm:baseBpm, speed:baseSpeed,
+      beatMs, barMs:beatMs*beatsPerBar }];
+  }
+  let t = 0;
+  return sectionsList.map(s=>{
+    const beatMs = 60000/s.bpm;
+    const barMs = beatMs*beatsPerBar;
+    const durMs = barMs*Math.max(1,s.bars);
+    const seg = { startMs:t, endMs:t+durMs, bars:s.bars, bpm:s.bpm, speed:s.speed, beatMs, barMs };
+    t += durMs;
+    return seg;
+  });
+}
+// editor-facing: always reflects the Chart Editor's own live state.song
+function computeSongSections(){
+  return computeSectionsFor(state.song.bpm, state.song.speed, state.song.beatsPerBar, state.song.sections);
+}
+// gameplay-facing: reflects whatever song is actually being played (Freeplay/multiplayer
+// song can differ from the live editor state — same activePlaySong pattern as playSpeed() etc.)
+function computePlaySections(){
+  const src = state.activePlaySong;
+  return computeSectionsFor(
+    src ? src.bpm : state.song.bpm,
+    src ? src.speed : state.song.speed,
+    src ? (src.beatsPerBar||4) : state.song.beatsPerBar,
+    src ? (src.sections||[]) : state.song.sections
+  );
+}
+function bpmAt(tMs){
+  const segs = computeSongSections();
+  for(let i=0;i<segs.length;i++){ if(tMs < segs[i].endMs) return segs[i].bpm; }
+  return segs[segs.length-1].bpm;
+}
+// cumulative "scroll distance" (ms, pre-multiplied by each segment's speed) from t=0 up to tMs —
+// this is what makes note positions correct across a speed CHANGE instead of just jumping when
+// the multiplier flips; segments carry a running total (cumStart) computed once per session
+function buildTempoSegments(){
+  const segs = computePlaySections();
+  let cum = 0;
+  return segs.map(s=>{
+    const withCum = Object.assign({}, s, {cumStart: cum});
+    if(s.endMs !== Infinity) cum += (s.endMs - s.startMs) * s.speed;
+    return withCum;
+  });
+}
+function cumulativeScrollAt(segments, tMs){
+  for(let i=0;i<segments.length;i++){
+    const s = segments[i];
+    if(tMs < s.endMs || s.endMs===Infinity) return s.cumStart + (tMs - s.startMs) * s.speed;
+  }
+  const last = segments[segments.length-1];
+  return last.cumStart + (tMs - last.startMs) * last.speed;
+}
 
 const HUGE_CHART_NOTE_COUNT = 15000; // above this, the DOM grid is skipped entirely — see renderTimeline()
 function renderTimeline(){
@@ -2065,24 +2179,47 @@ function renderTimeline(){
 
   const beatMs = 60000/state.song.bpm;
   const barMs = beatMs*state.song.beatsPerBar;
+  const tempoSegs = computeSongSections();
+  const hasTempoSections = state.song.sections.length > 0;
   const sectionBars = Math.max(1, state.song.sectionBars||4);
   const sectionMs = barMs*sectionBars;
 
-  // section background bands, drawn first so everything else paints on top of them
-  let secIdx = 0;
-  for(let t=0; t<durMs; t+=sectionMs, secIdx++){
-    const bandH = Math.min(sectionMs, durMs-t) * pxPerMs();
-    const band = document.createElement('div');
-    band.className = 'section-band'+(secIdx%2 ? ' alt' : '');
-    band.style.top = (t*pxPerMs())+'px';
-    band.style.height = bandH+'px';
-    band.style.width = fullWidth+'px';
-    timeline.appendChild(band);
-    const slabel = document.createElement('div');
-    slabel.className = 'section-label';
-    slabel.style.top = (t*pxPerMs()+3)+'px';
-    slabel.textContent = 'Секция '+(secIdx+1);
-    timeline.appendChild(slabel);
+  // section background bands, drawn first so everything else paints on top of them.
+  // real tempo sections (when defined) double as the navigation bands; otherwise fall back
+  // to the old uniform sectionBars grouping — purely cosmetic, no tempo attached.
+  if(hasTempoSections){
+    tempoSegs.forEach((seg, secIdx)=>{
+      const segEnd = Math.min(seg.endMs, durMs);
+      if(segEnd <= seg.startMs) return;
+      const bandH = (segEnd - seg.startMs) * pxPerMs();
+      const band = document.createElement('div');
+      band.className = 'section-band'+(secIdx%2 ? ' alt' : '');
+      band.style.top = (seg.startMs*pxPerMs())+'px';
+      band.style.height = bandH+'px';
+      band.style.width = fullWidth+'px';
+      timeline.appendChild(band);
+      const slabel = document.createElement('div');
+      slabel.className = 'section-label';
+      slabel.style.top = (seg.startMs*pxPerMs()+3)+'px';
+      slabel.textContent = `Секция ${secIdx+1} · ${seg.bpm} BPM · x${seg.speed}`;
+      timeline.appendChild(slabel);
+    });
+  } else {
+    let secIdx = 0;
+    for(let t=0; t<durMs; t+=sectionMs, secIdx++){
+      const bandH = Math.min(sectionMs, durMs-t) * pxPerMs();
+      const band = document.createElement('div');
+      band.className = 'section-band'+(secIdx%2 ? ' alt' : '');
+      band.style.top = (t*pxPerMs())+'px';
+      band.style.height = bandH+'px';
+      band.style.width = fullWidth+'px';
+      timeline.appendChild(band);
+      const slabel = document.createElement('div');
+      slabel.className = 'section-label';
+      slabel.style.top = (t*pxPerMs()+3)+'px';
+      slabel.textContent = 'Секция '+(secIdx+1);
+      timeline.appendChild(slabel);
+    }
   }
 
   const laneOrder = [0,1,2,3,'gap',4,5,6,7];
@@ -2098,27 +2235,36 @@ function renderTimeline(){
     xCursor += 64;
   });
 
-  const sMs = stepMs();
+  // grid lines: walked per tempo segment, so bar/beat spacing follows that segment's own
+  // bpm — with no explicit sections this is just the one whole-song segment (old behaviour)
+  const stepsPerBeat = state.chart.snap/4;
   let bar = 0;
-  for(let t=0; t<=durMs; t+=sMs){
-    const y = t*pxPerMs();
-    const isBar = Math.abs(t % barMs) < 0.001 || Math.abs((t%barMs)-barMs)<0.001;
-    const isBeat = Math.abs(t % beatMs) < 0.001 || Math.abs((t%beatMs)-beatMs)<0.001;
-    const isSection = isBar && (bar % sectionBars === 0);
-    const row = document.createElement('div');
-    row.className = 'grid-row'+(isSection?' section':(isBar?' bar':(isBeat?' beat':'')));
-    row.style.top = y+'px';
-    row.style.width = fullWidth+'px';
-    timeline.appendChild(row);
-    if(isBar){
-      const lbl = document.createElement('div');
-      lbl.className = 'bar-label';
-      lbl.style.top = (y-6)+'px';
-      lbl.textContent = bar;
-      timeline.appendChild(lbl);
-      bar++;
+  tempoSegs.forEach(seg=>{
+    const segEnd = Math.min(seg.endMs, durMs);
+    if(segEnd <= seg.startMs) return;
+    const sMs = seg.beatMs/stepsPerBeat;
+    for(let t=seg.startMs; t<segEnd-0.001; t+=sMs){
+      const y = t*pxPerMs();
+      const rel = t - seg.startMs;
+      const isBar = Math.abs(rel % seg.barMs) < 0.001 || Math.abs((rel%seg.barMs)-seg.barMs)<0.001;
+      const isBeat = Math.abs(rel % seg.beatMs) < 0.001 || Math.abs((rel%seg.beatMs)-seg.beatMs)<0.001;
+      const isSectionBoundary = hasTempoSections ? (isBar && Math.abs(rel)<0.001)
+        : (isBar && (bar % sectionBars === 0));
+      const row = document.createElement('div');
+      row.className = 'grid-row'+(isSectionBoundary?' section':(isBar?' bar':(isBeat?' beat':'')));
+      row.style.top = y+'px';
+      row.style.width = fullWidth+'px';
+      timeline.appendChild(row);
+      if(isBar){
+        const lbl = document.createElement('div');
+        lbl.className = 'bar-label';
+        lbl.style.top = (y-6)+'px';
+        lbl.textContent = bar;
+        timeline.appendChild(lbl);
+        bar++;
+      }
     }
-  }
+  });
 
   state.song.notes.forEach((n,i)=>{
     const laneX = laneToX(n.lane);
@@ -2160,7 +2306,7 @@ function onLaneMouseDown(e, lane, colEl){
   const timelineRect = $('timeline').getBoundingClientRect();
   const y = e.clientY - timelineRect.top;
   const tRaw = y / pxPerMs();
-  const s = stepMs();
+  const s = stepMs(tRaw); // snap grid follows whichever tempo section tRaw actually falls in
   const tSnap = Math.round(tRaw/s)*s;
 
   const existing = state.song.notes.find(n=> n.lane===lane && Math.abs(n.t-tSnap) < s*0.4);
@@ -2285,6 +2431,7 @@ $('saveSongBtn').addEventListener('click', ()=>{
     speed: state.song.speed,
     beatsPerBar: state.song.beatsPerBar,
     sectionBars: state.song.sectionBars||4,
+    sections: state.song.sections.map(s=>({bars:s.bars, bpm:s.bpm, speed:s.speed})),
     needsVoices: !!state.song.voicesFile,
     instFile: state.song.instFile ? state.song.instFile.name : null,
     voicesFile: state.song.voicesFile ? state.song.voicesFile.name : null,
@@ -2306,6 +2453,8 @@ $('loadSongBtn').addEventListener('click', ()=>{
       state.song.speed = data.speed||1; $('songSpeed').value = state.song.speed;
       state.song.beatsPerBar = data.beatsPerBar||4; $('songBeats').value = state.song.beatsPerBar;
       state.song.sectionBars = data.sectionBars||4; if($('sectionBarsInput')) $('sectionBarsInput').value = state.song.sectionBars;
+      state.song.sections = Array.isArray(data.sections) ? data.sections.map(s=>({bars:s.bars||1, bpm:s.bpm||state.song.bpm, speed:s.speed||1})) : [];
+      renderTempoSections();
       state.song.playerCharId = data.playerChar || '';
       state.song.opponentCharId = data.opponentChar || '';
       refreshDataCharSelects();
@@ -2341,9 +2490,23 @@ function looksLikePsychChart(data){
 function convertPsychSong(data, forcedFormat){
   const fmt = (forcedFormat && forcedFormat!=='auto') ? forcedFormat : detectPsychFormat(data);
   const s = fmt==='new' ? data.song : data; // old format: fields sit directly on the root object
+  const baseBpm = s.bpm || 100;
   const notes = [];
+  // per-section tempo: Psych sections can carry their own "bpm" + "changeBPM":true — merge
+  // consecutive sections that share the same bpm into one of our own tempo sections, so a
+  // chart with one real tempo change doesn't turn into hundreds of 1-bar rows in the editor
+  const tempoSections = [];
+  let runningBpm = baseBpm;
   (s.notes||[]).forEach(section=>{
     const mustHit = !!section.mustHitSection;
+    const secBars = Math.max(1, Math.round((section.sectionBeats || section.lengthInSteps || 16)/16));
+    const secBpm = (section.changeBPM && section.bpm) ? section.bpm : runningBpm;
+    if(tempoSections.length && tempoSections[tempoSections.length-1].bpm===secBpm){
+      tempoSections[tempoSections.length-1].bars += secBars;
+    } else {
+      tempoSections.push({ bars:secBars, bpm:secBpm, speed:s.speed||1 });
+    }
+    runningBpm = secBpm;
     (section.sectionNotes||[]).forEach(sn=>{
       const strumTime = sn[0], rawData = sn[1], sustain = sn[2]||0;
       const visualLane = ((rawData % 4)+4)%4; // 0-3, defensive against odd/negative values
@@ -2355,10 +2518,13 @@ function convertPsychSong(data, forcedFormat){
   notes.sort((a,b)=> a.t-b.t);
   return {
     songName: s.song || 'Imported song', // "song" is the plain name string either way (root string in old, nested string in new)
-    bpm: s.bpm || 100,
+    bpm: baseBpm,
     speed: s.speed || 1,
     needsVoices: !!s.needsVoices,
     player1: s.player1 || '?', player2: s.player2 || '?',
+    // only keep a per-section list if there's an ACTUAL bpm change somewhere — otherwise the
+    // simpler uniform-tempo path (empty sections list) covers it exactly the same
+    sections: tempoSections.length>1 ? tempoSections : [],
     notes, detectedFormat: fmt
   };
 }
@@ -2541,6 +2707,7 @@ function startPlaySession(){
 
   const sess = {
     running:true, notes, cursorIdx:0,
+    tempoSegments: buildTempoSegments(), // cached once — sections don't change mid-session
     startedAtPerf: performance.now(), startOffsetMs:0, // performance.now() — never gets stuck if the AudioContext clock stalls
     score:0, combo:0, maxCombo:0, hits:0, misses:0, health:50,
     heldLane:{0:null,1:null,2:null,3:null}, // sustain note currently being held per lane
@@ -2886,7 +3053,7 @@ function drawPlayFrame(sess, t){
   const laneSize = Math.min(56*dpr, (w*0.42)/laneCount);
   const leftStartX = w*0.06;
   const rightStartX = w*0.54;
-  const pxPerMs = (h*0.00042) * (playSpeed()||1);
+  const BASE_PX = h*0.00042; // pixels per (ms × speed-unit) — speed comes from tempoSegments now, not a flat multiply
 
   function laneX(lane){
     // player lanes (0-3) render on the right (matches where the player character stands),
@@ -2911,10 +3078,13 @@ function drawPlayFrame(sess, t){
     playCtx.fillText(LANE_GLYPH[l%4], x+laneSize/2, receptorY+1);
   }
 
-  // notes: y = receptorY + (n.t - t) * pxPerMs  (fall from below, arrive at receptor)
-  // windowed from the live cursor (see startPlaySession/playLoop) instead of scanning every
-  // note every frame — the extra margin covers the visible screen plus the sustain tail length
-  const maxAheadMs = (h + 100*dpr - receptorY) / pxPerMs + 300;
+  // notes: y = receptorY + (cumulativeScroll(n.t) - cumulativeScroll(t)) * BASE_PX  — using
+  // cumulative scroll distance (not a flat n.t-t multiply) so a speed CHANGE mid-song moves the
+  // scroll rate smoothly instead of every note jumping position the instant it flips
+  const segs = sess.tempoSegments;
+  const nowCum = cumulativeScrollAt(segs, t);
+  const maxSpeed = Math.max.apply(null, segs.map(s=>s.speed)); // segs list is tiny (never huge like notes), safe to spread
+  const maxAheadMs = (h + 100*dpr - receptorY) / (BASE_PX*Math.max(0.01,maxSpeed)) + 300;
   playCtx.font = Math.round(laneSize*0.42)+'px sans-serif'; // set once — was being reset on every single note
   playCtx.textAlign = 'center'; playCtx.textBaseline = 'middle';
   let lastFillStyle = null;
@@ -2932,7 +3102,7 @@ function drawPlayFrame(sess, t){
     if(n._holding){
       // being actively held: the head is "consumed", only the remaining tail is shown,
       // shrinking toward the receptor as the hold progresses
-      const endY = receptorY + (n.t+n.sustain - t) * pxPerMs;
+      const endY = receptorY + (cumulativeScrollAt(segs, n.t+n.sustain) - nowCum) * BASE_PX;
       if(endY > receptorY - 2){
         const tailW = laneSize*0.24;
         if(lastFillStyle!==color){ playCtx.fillStyle = color; lastFillStyle = color; }
@@ -2942,17 +3112,17 @@ function drawPlayFrame(sess, t){
       }
       continue;
     }
-    const y = receptorY + (n.t - t) * pxPerMs;
+    const y = receptorY + (cumulativeScrollAt(segs, n.t) - nowCum) * BASE_PX;
     if(y < -60*dpr || y > h+60*dpr) continue;
     drawnCount++;
     const simple = drawnCount > SIMPLE_DRAW_LIMIT;
     // sustain tail — trails behind the head toward where it's coming from (later time = further down)
     if(!simple && n.sustain>0){
-      const tailH = n.sustain*pxPerMs;
+      const tailEndY = receptorY + (cumulativeScrollAt(segs, n.t+n.sustain) - nowCum) * BASE_PX;
       const tailW = laneSize*0.24;
       if(lastFillStyle!==color){ playCtx.fillStyle = color; lastFillStyle = color; }
       playCtx.globalAlpha = 0.45;
-      playCtx.fillRect(x+laneSize/2-tailW/2, y, tailW, tailH);
+      playCtx.fillRect(x+laneSize/2-tailW/2, y, tailW, tailEndY-y);
       playCtx.globalAlpha = 1;
     }
     if(lastFillStyle!==color){ playCtx.fillStyle = color; lastFillStyle = color; }
@@ -3076,6 +3246,7 @@ setupResizeHandle('chartResizeHandle', 'chartSidebar', 180, 480);
 /* init */
 renderAnimList();
 renderLibrary();
+renderTempoSections();
 renderTimeline();
 updateTimeLabel();
 })();
