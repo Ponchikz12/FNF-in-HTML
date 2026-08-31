@@ -751,6 +751,7 @@
           </select>
           <button class="btn" id="importPsychBtn">⬆ Импорт из Psych Engine</button>
           <input type="file" id="importPsychFile" accept=".json,application/json" style="display:none">
+          <button class="btn" id="swapSidesBtn" title="Меняет местами дорожки P1↔P2 у всех нот — на случай, если импорт из другого движка перепутал игрока и оппонента">🔄 Player↔Opponent</button>
           <button class="btn" id="testPlayBtn">🎮 Тест в игре</button>
           <button class="btn btn-primary" id="saveSongBtn">⬇ Save Song JSON</button>
         </div>
@@ -2080,6 +2081,12 @@ $('addTempoSectionBtn').addEventListener('click', ()=>{
   renderTempoSections();
   renderTimeline();
 });
+$('swapSidesBtn').addEventListener('click', ()=>{
+  if(!state.song.notes.length){ alert('В чарте пока нет нот.'); return; }
+  state.song.notes.forEach(n=>{ n.lane = n.lane<4 ? n.lane+4 : n.lane-4; });
+  renderTimeline();
+  updateNoteCount();
+});
 
 function stepMs(tMs){
   const bpm = tMs!=null ? bpmAt(tMs) : state.song.bpm;
@@ -2300,7 +2307,11 @@ function renderTimeline(){
 function laneToX(lane){
   return lane<4 ? lane*64 : (4*64+22)+(lane-4)*64;
 }
-function updateNoteCount(){ $('noteCountTag').textContent = state.song.notes.length+' нот'; }
+function updateNoteCount(){
+  const p1 = state.song.notes.filter(n=>n.lane<4).length;
+  const p2 = state.song.notes.length - p1;
+  $('noteCountTag').textContent = `${state.song.notes.length} нот (P1: ${p1} / P2: ${p2})`;
+}
 
 function onLaneMouseDown(e, lane, colEl){
   const timelineRect = $('timeline').getBoundingClientRect();
@@ -2556,9 +2567,16 @@ $('importPsychFile').addEventListener('change', async (e)=>{
     state.song.bpm = conv.bpm; $('songBpm').value = state.song.bpm;
     state.song.speed = conv.speed; $('songSpeed').value = state.song.speed;
     state.song.notes = conv.notes;
+    state.song.sections = conv.sections || [];
+    renderTempoSections();
+    const p1Count = conv.notes.filter(n=>n.lane<4).length;
+    const p2Count = conv.notes.length - p1Count;
     const fmtLabel = conv.detectedFormat==='old' ? 'старый (плоский корень)' : 'новый (song{})';
-    const charNote = `Формат: ${fmtLabel}. Персонажи в исходнике: ${conv.player1} (player) / ${conv.player2} (opponent) — `+
-      `назначь подходящих вручную в библиотеке персонажей.`;
+    const skewWarn = (conv.notes.length>20 && (p1Count===0 || p2Count===0 || p1Count/conv.notes.length>0.92 || p2Count/conv.notes.length>0.92))
+      ? '\n\n⚠ Подозрительный перекос между P1 и P2 — если реально должно быть примерно поровну, нажми «🔄 Player↔Opponent» в тулбаре или попробуй выбрать другую версию формата в выпадающем списке и импортировать заново.'
+      : '';
+    const charNote = `Формат: ${fmtLabel}. Нот у Player: ${p1Count}, у Opponent: ${p2Count}. `+
+      `Персонажи в исходнике: ${conv.player1} (player) / ${conv.player2} (opponent) — назначь подходящих вручную в библиотеке персонажей.${skewWarn}`;
     if(conv.notes.length > HUGE_CHART_NOTE_COUNT){
       renderTimeline(); // now safe to call unconditionally — it shows the "too many notes" placeholder itself
       alert(`Импортировано: "${conv.songName}" — ${conv.notes.length} нот, BPM ${conv.bpm}.\n\n`+
