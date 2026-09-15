@@ -752,6 +752,11 @@
           <label class="checkline" style="white-space:nowrap;" title="У некоторых сторонних чартеров/конвертеров mustHitSection закодирован наоборот относительно стандарта — попробуй включить, если после обычного импорта игрок/оппонент перепутаны">
             <input type="checkbox" id="psychInvertHit"> инверт. mustHit
           </label>
+          <select id="psychNoteScheme" title="Как определять, чья это нота. Авто — перебирает варианты и берёт тот, где Player/Opponent наиболее сбалансированы (у некоторых сторонних чартеров/конвертеров это кодируется не по стандарту FNF)">
+            <option value="auto">Стороны: авто-подбор</option>
+            <option value="flip">Стороны: стандарт (flip)</option>
+            <option value="section">Стороны: только mustHit</option>
+          </select>
           <button class="btn" id="importPsychBtn">⬆ Импорт из Psych Engine</button>
           <input type="file" id="importPsychFile" accept=".json,application/json" style="display:none">
           <button class="btn" id="swapSidesBtn" title="Меняет местами дорожки P1↔P2 у всех нот — на случай, если импорт из другого движка перепутал игрока и оппонента">🔄 Player↔Opponent</button>
@@ -2522,22 +2527,59 @@ function detectPsychFormat(data){
 function looksLikePsychChart(data){
   return detectPsychFormat(data) !== null;
 }
-function convertPsychSong(data, forcedFormat, invertHit){
+// how a note's raw data (0-7) + its section's mustHitSection flag decide "is this the
+// player's note". Sources disagree on this:
+//   flip    — documented vanilla FNF/Psych rule: start from mustHit, then flip whenever
+//             rawData>3 (so rawData 4-7 always means "the other side")
+//   section — no per-note flip at all: every note in the section belongs to whichever side
+//             mustHitSection names, rawData only picks which arrow (rawData%4). Several
+//             non-0.6.3 chart sources/converters use this simpler scheme instead.
+function resolveGottaHit(mustHit, rawData, scheme){
+  if(scheme==='section') return mustHit;
+  let g = mustHit; if(rawData>3) g = !g; return g; // 'flip' (default)
+}
+function convertPsychSong(data, forcedFormat, invertHit, noteScheme){
   const fmt = (forcedFormat && forcedFormat!=='auto') ? forcedFormat : detectPsychFormat(data);
   const s = fmt==='new' ? data.song : data; // old format: fields sit directly on the root object
   const baseBpm = s.bpm || 100;
+  const sectionsRaw = s.notes || [];
+
+  // "auto": tally both schemes in a cheap counting-only pass, then keep whichever produces the
+  // more balanced Player/Opponent split — a genuine duet chart is never ~99% one-sided, so the
+  // least-skewed candidate is essentially always the correct interpretation
+  let scheme = (noteScheme && noteScheme!=='auto') ? noteScheme : null;
+  if(!scheme){
+    const counts = {flip:[0,0], section:[0,0]};
+    sectionsRaw.forEach(sec=>{
+      const mh = invertHit ? !sec.mustHitSection : !!sec.mustHitSection;
+      (sec.sectionNotes||[]).forEach(sn=>{
+        counts.flip[resolveGottaHit(mh, sn[1], 'flip') ? 0 : 1]++;
+        counts.section[resolveGottaHit(mh, sn[1], 'section') ? 0 : 1]++;
+      });
+    });
+    const skew = c => { const t=c[0]+c[1]; return t ? Math.max(c[0],c[1])/t : 1; };
+    scheme = skew(counts.section) < skew(counts.flip) - 0.001 ? 'section' : 'flip';
+  }
+
   const notes = [];
   // per-section tempo: Psych sections can carry their own "bpm" + "changeBPM":true — merge
   // consecutive sections that share the same bpm into one of our own tempo sections, so a
   // chart with one real tempo change doesn't turn into hundreds of 1-bar rows in the editor
   const tempoSections = [];
   let runningBpm = baseBpm;
-  (s.notes||[]).forEach(section=>{
+  sectionsRaw.forEach(section=>{
     // mustHitSection means "who's in focus" this section, not "every note here is theirs" —
     // some sources/converters encode it the opposite way round from the documented standard,
     // hence the optional invertHit override (checkbox next to the import button)
     const mustHit = invertHit ? !section.mustHitSection : !!section.mustHitSection;
-    const secBars = Math.max(1, Math.round((section.sectionBeats || section.lengthInSteps || 16)/16));
+    // section length -> bars. These two fields use DIFFERENT units and must not be divided
+    // by the same number: sectionBeats counts beats (4 per bar), lengthInSteps counts steps
+    // (16 per bar). Getting this wrong shifts where every later tempo change lands.
+    const secBars = Math.max(1, Math.round(
+      section.sectionBeats != null ? section.sectionBeats/4
+      : section.lengthInSteps != null ? section.lengthInSteps/16
+      : 1
+    ));
     const secBpm = (section.changeBPM && section.bpm) ? section.bpm : runningBpm;
     if(tempoSections.length && tempoSections[tempoSections.length-1].bpm===secBpm){
       tempoSections[tempoSections.length-1].bars += secBars;
@@ -2548,8 +2590,7 @@ function convertPsychSong(data, forcedFormat, invertHit){
     (section.sectionNotes||[]).forEach(sn=>{
       const strumTime = sn[0], rawData = sn[1], sustain = sn[2]||0;
       const visualLane = ((rawData % 4)+4)%4; // 0-3, defensive against odd/negative values
-      let gottaHit = mustHit;
-      if(rawData > 3) gottaHit = !gottaHit;
+      const gottaHit = resolveGottaHit(mustHit, rawData, scheme);
       notes.push({ t: strumTime, lane: gottaHit ? visualLane : visualLane+4, sustain });
     });
   });
@@ -2563,7 +2604,7 @@ function convertPsychSong(data, forcedFormat, invertHit){
     // only keep a per-section list if there's an ACTUAL bpm change somewhere — otherwise the
     // simpler uniform-tempo path (empty sections list) covers it exactly the same
     sections: tempoSections.length>1 ? tempoSections : [],
-    notes, detectedFormat: fmt
+    notes, detectedFormat: fmt, usedScheme: scheme
   };
 }
 $('importPsychBtn').addEventListener('click', ()=> $('importPsychFile').click());
@@ -2586,7 +2627,7 @@ $('importPsychFile').addEventListener('change', async (e)=>{
         'либо ноты прямо в корне { "notes": [...] } (старый формат). Можно выбрать версию вручную в выпадающем списке рядом с кнопкой.');
       return;
     }
-    const conv = convertPsychSong(data, forced, $('psychInvertHit').checked);
+    const conv = convertPsychSong(data, forced, $('psychInvertHit').checked, $('psychNoteScheme').value);
     if(!conv.notes.length && !confirm('В файле не нашлось ни одной ноты по выбранному формату. Похоже, выбрана не та версия — импортировать всё равно (0 нот)?')){
       return;
     }
@@ -2599,10 +2640,11 @@ $('importPsychFile').addEventListener('change', async (e)=>{
     const p1Count = conv.notes.filter(n=>n.lane<4).length;
     const p2Count = conv.notes.length - p1Count;
     const fmtLabel = conv.detectedFormat==='old' ? 'старый (плоский корень)' : 'новый (song{})';
+    const schemeLabel = conv.usedScheme==='section' ? 'только mustHit' : 'стандарт (flip)';
     const skewWarn = (conv.notes.length>20 && (p1Count===0 || p2Count===0 || p1Count/conv.notes.length>0.92 || p2Count/conv.notes.length>0.92))
-      ? '\n\n⚠ Подозрительный перекос между P1 и P2 — если реально должно быть примерно поровну, нажми «🔄 Player↔Opponent» в тулбаре или попробуй выбрать другую версию формата в выпадающем списке и импортировать заново.'
+      ? '\n\n⚠ Подозрительный перекос между P1 и P2 — если реально должно быть примерно поровну, нажми «🔄 Player↔Opponent» в тулбаре или выбери другую схему сторон / версию формата и импортируй заново.'
       : '';
-    const charNote = `Формат: ${fmtLabel}. Нот у Player: ${p1Count}, у Opponent: ${p2Count}. `+
+    const charNote = `Формат: ${fmtLabel}. Схема сторон: ${schemeLabel}. Нот у Player: ${p1Count}, у Opponent: ${p2Count}. `+
       `Персонажи в исходнике: ${conv.player1} (player) / ${conv.player2} (opponent) — назначь подходящих вручную в библиотеке персонажей.${skewWarn}`;
     if(conv.notes.length > HUGE_CHART_NOTE_COUNT){
       renderTimeline(); // now safe to call unconditionally — it shows the "too many notes" placeholder itself
