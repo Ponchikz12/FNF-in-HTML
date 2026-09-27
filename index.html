@@ -393,8 +393,9 @@
       <h3>Персонажи</h3>
       <div class="row">
         <div class="field"><label>Твой персонаж</label><select id="mpMyChar"><option value="">без персонажа</option></select></div>
-        <div class="field"><label>Персонаж соперника</label><select id="mpOppChar"><option value="">без персонажа</option></select></div>
+        <div class="field"><label>Персонаж соперника <span class="tag">запасной вариант</span></label><select id="mpOppChar"><option value="">без персонажа</option></select></div>
       </div>
+      <div class="hint-text" id="mpCharStatus">Твой выбор отправляется сопернику автоматически — большая библиотека не передаётся, летит только он.</div>
     </div>
 
     <div class="card" id="mpActionsCard" style="display:none;">
@@ -952,7 +953,11 @@ const state = {
     myDevice: detectDeviceType(), myPing:null, oppPing:null, pingIntervalId:null,
     active:false, // true while a synced multiplayer match is actually being played
     oppStats:{score:0, health:50, combo:0},
-    oppFinished:null, myFinished:null
+    oppFinished:null, myFinished:null,
+    // the opponent's actual chosen character, received over the relay (see "set_char"/"char_sync"
+    // below) — only THIS one character ever crosses the wire, never the whole library, so a
+    // 20-character roster costs the same as a 2-character one
+    oppCharData:null, myLastSentCharId:null
   }
 };
 let mpReady = false;
@@ -1138,6 +1143,66 @@ function refreshMpCharSelects(){
   });
 }
 
+/* ---- sending ONE character (yours) over the MP relay, not the whole library ----
+   For a big roster it's wasteful (and slow on weak connections) to ship all twenty saved
+   characters to the other player — only the two that actually end up on screen matter: mine,
+   which I send, and theirs, which arrives the same way from their side. */
+function imgElToDataURL(img){
+  if(!img || !(img.naturalWidth||img.width)) return null;
+  const c = document.createElement('canvas');
+  c.width = img.naturalWidth||img.width; c.height = img.naturalHeight||img.height;
+  c.getContext('2d').drawImage(img,0,0);
+  return c.toDataURL('image/png');
+}
+function dataURLToImgEl(url){
+  return new Promise(resolve=>{
+    if(!url){ resolve(null); return; }
+    const img = new Image();
+    img.onload = ()=> resolve(img);
+    img.onerror = ()=> resolve(null);
+    img.src = url;
+  });
+}
+function serializeCharForMp(c){
+  if(!c) return null;
+  return {
+    id:c.id, label:c.label,
+    img: imgElToDataURL(c.imgEl),
+    icon: imgElToDataURL(c.iconEl),
+    iconFlipX: !!c.iconFlipX,
+    groups: c.groups, animations: c.animations,
+    scale: c.scale, flipX: c.flipX
+  };
+}
+async function deserializeCharFromMp(data){
+  if(!data) return null;
+  const [imgEl, iconEl] = await Promise.all([dataURLToImgEl(data.img), dataURLToImgEl(data.icon)]);
+  if(!imgEl) return null; // atlas failed to decode — treat as "no character" rather than crash the draw loop
+  return {
+    id:data.id, label:data.label, imgEl, iconEl,
+    iconFlipX:!!data.iconFlipX, groups:data.groups||{}, animations:data.animations||[],
+    scale:data.scale||1, flipX:!!data.flipX
+  };
+}
+// upsert-by-id, same rule the local "Добавить в библиотеку" button uses — lets everything
+// downstream (openPlayView / startPlaySession) resolve the opponent's character by id exactly
+// like a local one, with no separate code path
+function upsertLibraryChar(entry){
+  if(!entry) return;
+  const idx = state.library.findIndex(c=>c.id===entry.id);
+  if(idx>=0) state.library[idx] = entry; else state.library.push(entry);
+}
+function sendMyMpChar(){
+  if(!state.mp.connected || !state.mp.code) return;
+  const id = $('mpMyChar').value;
+  if(!id) return;
+  const c = state.library.find(x=>x.id===id);
+  if(!c) return;
+  state.mp.myLastSentCharId = id;
+  mpSend({type:'set_char', char: serializeCharForMp(c)});
+}
+$('mpMyChar').addEventListener('change', sendMyMpChar);
+
 $('mpInstFile').addEventListener('change', async (e)=>{
   const f = e.target.files[0]; if(!f) return;
   pickFileUI('mpInstPick', f.name, true);
@@ -1189,6 +1254,8 @@ function handleMpMessage(msg){
       state.mp.code = msg.code; state.mp.isHost = msg.isHost; state.mp.youId = msg.youId;
       state.mp.players = msg.players; state.mp.song = null; state.mp.roles = null;
       state.mp.myRole = null; state.mp.oppRole = null; mpReady = false;
+      state.mp.oppCharData = null; state.mp.myLastSentCharId = null;
+      $('mpCharStatus').textContent = 'Твой выбор отправляется сопернику автоматически — большая библиотека не передаётся, летит только он.';
       $('mpReadyBtn').textContent = 'Готов';
       $('mpActionsCard').style.display = 'none';
       $('mpSongCard').style.display = state.mp.isHost ? '' : '';
@@ -1202,6 +1269,7 @@ function handleMpMessage(msg){
       state.mp.players.push(msg.player);
       refreshMpRoleSelects();
       renderMpLobby();
+      sendMyMpChar(); // resend my pick so a late joiner still gets it, without resending anyone else's
       break;
     case 'player_left':
       state.mp.players = state.mp.players.filter(p=>p.id!==msg.id);
@@ -1220,6 +1288,20 @@ function handleMpMessage(msg){
     case 'roles_sync':
       state.mp.roles = msg.roles;
       applyMpRoles();
+      break;
+    case 'char_sync':
+      // only the one character the opponent actually picked arrives here — never their library
+      $('mpCharStatus').textContent = 'Персонаж соперника получен: '+(msg.char ? msg.char.label : '—');
+      deserializeCharFromMp(msg.char).then(entry=>{
+        if(!entry){
+          $('mpCharStatus').textContent = 'Не удалось получить персонажа соперника — используется запасной вариант.';
+          return;
+        }
+        upsertLibraryChar(entry);
+        state.mp.oppCharData = entry;
+        renderLibrary(); // refreshes the mp/data/play selects too, so it shows up as pickable
+        $('mpCharStatus').textContent = 'Персонаж соперника получен: '+entry.label;
+      });
       break;
     case 'public_list':
       renderMpPublicList(msg.lobbies);
@@ -1355,6 +1437,7 @@ $('mpReadyBtn').addEventListener('click', ()=>{
   if(!mpReady && !state.mp.instBuf){ alert('Сначала загрузи Inst.ogg для матча (карточка "Аудио для матча").'); return; }
   if(!mpReady && !state.mp.song){ alert('Ещё нет песни — её должен выбрать хост.'); return; }
   mpReady = !mpReady;
+  if(mpReady) sendMyMpChar(); // one last resend right before the match, in case an earlier send was missed
   mpSend({type: mpReady?'ready':'unready'});
   $('mpReadyBtn').textContent = mpReady ? '✓ Готов (отменить)' : 'Готов';
 });
@@ -1388,11 +1471,15 @@ function beginMpMatch(){
   // "mpMyChar" is always MY OWN pick, regardless of role — place it on whichever side
   // (player/opponent) my assigned role actually controls, so it renders where I'm playing
   const iAmPlayer = state.mp.myRole !== 'opponent'; // default to player side if no role assigned yet
+  const myCharId = $('mpMyChar').value;
+  // prefer what the opponent actually sent over the wire; the "Персонаж соперника" select is
+  // only a manual fallback for when nothing arrived yet (slow connection, they haven't picked)
+  const oppCharId = state.mp.oppCharData ? state.mp.oppCharData.id : $('mpOppChar').value;
   const songEntry = {
     name: s.songName, bpm:s.bpm, speed:s.speed, beatsPerBar:s.beatsPerBar, sections: s.sections||[],
     notes: s.notes, instBuf: state.mp.instBuf, voicesBuf: state.mp.voicesBuf,
-    playerCharId: iAmPlayer ? $('mpMyChar').value : $('mpOppChar').value,
-    opponentCharId: iAmPlayer ? $('mpOppChar').value : $('mpMyChar').value
+    playerCharId: iAmPlayer ? myCharId : oppCharId,
+    opponentCharId: iAmPlayer ? oppCharId : myCharId
   };
   openPlayView(songEntry);
   $('playSongTitle').textContent = s.songName + ' (Мультиплеер · ты — '+(iAmPlayer?'игрок':'оппонент')+')';
